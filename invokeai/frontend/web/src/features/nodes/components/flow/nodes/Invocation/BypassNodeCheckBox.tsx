@@ -1,32 +1,33 @@
 import { Checkbox, FormControl, FormLabel } from '@invoke-ai/ui-library';
 import { useAppDispatch } from 'app/store/storeHooks';
-import { useUseCache } from 'features/nodes/hooks/useUseCache';
-import { nodeUseCacheChanged } from 'features/nodes/store/nodesSlice';
+import { useBypassNode } from 'features/nodes/hooks/useBypassNode';
+import { nodeBypassNodeChanged } from 'features/nodes/store/nodesSlice';
 import type { ChangeEvent } from 'react';
 import { memo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 
-const UseCacheCheckbox = ({ nodeId }: { nodeId: string }) => {
+const BypassNodeCheckbox = ({ nodeId }: { nodeId: string }) => {
   const dispatch = useAppDispatch();
-  const useCache = useUseCache(nodeId);
+  const useBypass = useBypassNode(nodeId);
   const handleChange = useCallback(
     (e: ChangeEvent<HTMLInputElement>) => {
       dispatch(
-        nodeUseCacheChanged({
+        nodeBypassNodeChanged({
           nodeId,
-          useCache: e.target.checked,
+          bypass: e.target.checked,
         })
       );
     },
     [dispatch, nodeId]
   );
   const { t } = useTranslation();
+
   return (
     <FormControl gap={2}>
-      <Checkbox className="nopan" onChange={handleChange} isChecked={useCache} />
-      <FormLabel>{t('invocationCache.useCache')}</FormLabel>
+      <Checkbox className="nopan" onChange={handleChange} isChecked={useBypass} />
+      <FormLabel>{t('invocationCache.bypassNode')}</FormLabel>
     </FormControl>
   );
 };
 
-export default memo(UseCacheCheckbox);
+export default memo(BypassNodeCheckbox);

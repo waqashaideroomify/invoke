@@ -5,6 +5,7 @@ import { DRAG_HANDLE_CLASSNAME } from 'features/nodes/types/constants';
 import { useFeatureStatus } from 'features/system/hooks/useFeatureStatus';
 import { memo } from 'react';
 
+import BypassNodeCheckBox from './BypassNodeCheckBox';
 import SaveToGalleryCheckbox from './SaveToGalleryCheckbox';
 import UseCacheCheckbox from './UseCacheCheckbox';
 
@@ -23,15 +24,18 @@ const InvocationNodeFooter = ({ nodeId }: Props) => {
       layerStyle="nodeFooter"
       w="full"
       borderBottomRadius="base"
-      gap={4}
+      gap={2}
       px={2}
       py={0}
       h={8}
       justifyContent="space-between"
     >
       <FormControlGroup formControlProps={props} formLabelProps={props}>
-        {isCacheEnabled && <UseCacheCheckbox nodeId={nodeId} />}
-        {hasImageOutput && <SaveToGalleryCheckbox nodeId={nodeId} />}
+        <Flex>
+          {isCacheEnabled && <UseCacheCheckbox nodeId={nodeId} />}
+          <BypassNodeCheckBox nodeId={nodeId} />
+        </Flex>
+        <Flex>{hasImageOutput && <SaveToGalleryCheckbox nodeId={nodeId} />}</Flex>
       </FormControlGroup>
     </Flex>
   );

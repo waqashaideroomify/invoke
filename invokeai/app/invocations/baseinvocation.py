@@ -691,6 +691,11 @@ class BaseInvocation(ABC, BaseModel):
         description="Whether or not to use the cache",
         json_schema_extra={"field_kind": FieldKind.NodeAttribute},
     )
+    bypass: bool = Field(
+        default=False,
+        description="Whether to bypass the node or not",
+        json_schema_extra={"field_kind": FieldKind.NodeAttribute},
+    )
 
     UIConfig: ClassVar[Type[UIConfigBase]]
 
@@ -706,13 +711,7 @@ class BaseInvocation(ABC, BaseModel):
 TBaseInvocation = TypeVar("TBaseInvocation", bound=BaseInvocation)
 
 
-RESERVED_NODE_ATTRIBUTE_FIELD_NAMES = {
-    "id",
-    "is_intermediate",
-    "use_cache",
-    "type",
-    "workflow",
-}
+RESERVED_NODE_ATTRIBUTE_FIELD_NAMES = {"id", "is_intermediate", "use_cache", "type", "workflow", "bypass"}
 
 RESERVED_INPUT_FIELD_NAMES = {
     "metadata",
@@ -797,6 +796,7 @@ def invocation(
     category: Optional[str] = None,
     version: Optional[str] = None,
     use_cache: Optional[bool] = True,
+    bypass: Optional[bool] = False,
     classification: Classification = Classification.Stable,
 ) -> Callable[[Type[TBaseInvocation]], Type[TBaseInvocation]]:
     """
@@ -850,6 +850,9 @@ def invocation(
 
         if use_cache is not None:
             cls.model_fields["use_cache"].default = use_cache
+
+        if bypass is not None:
+            cls.model_fields["bypass"].default = bypass
 
         # Add the invocation type to the model.
 
