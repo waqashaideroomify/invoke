@@ -1724,6 +1724,13 @@
         "showProgressImages": "Show Progress Images",
         "swapSizes": "Swap Sizes"
     },
+    "viewer": {
+        "viewerModeImage": "Image",
+        "viewerModeInfo": "Info",
+        "viewerModeProgress": "Progress",
+        "dropLabel": "View Image",
+        "noProgress": "Nothing in Progress"
+    },
     "unifiedCanvas": {
         "accept": "Accept",
         "activeLayer": "Active Layer",

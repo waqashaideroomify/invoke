@@ -37,17 +37,18 @@ type IAIDndImageProps = FlexProps & {
   isSelected?: boolean;
   thumbnail?: boolean;
   noContentFallback?: ReactElement;
-  useThumbailFallback?: boolean;
   withHoverOverlay?: boolean;
   children?: JSX.Element;
   uploadElement?: ReactNode;
   dataTestId?: string;
+  fallbackSrc?: string;
 };
 
 const IAIDndImage = (props: IAIDndImageProps) => {
   const {
     imageDTO,
     onError,
+    onLoad,
     onClick,
     withMetadataOverlay = false,
     isDropDisabled = false,
@@ -64,7 +65,7 @@ const IAIDndImage = (props: IAIDndImageProps) => {
     thumbnail = false,
     noContentFallback = defaultNoContentFallback,
     uploadElement = defaultUploadElement,
-    useThumbailFallback,
+    fallbackSrc,
     withHoverOverlay = false,
     children,
     onMouseOver,
@@ -150,8 +151,8 @@ const IAIDndImage = (props: IAIDndImageProps) => {
               <Image
                 src={thumbnail ? imageDTO.thumbnail_url : imageDTO.image_url}
                 fallbackStrategy="beforeLoadOrError"
-                fallbackSrc={useThumbailFallback ? imageDTO.thumbnail_url : undefined}
-                fallback={useThumbailFallback ? undefined : <IAILoadingImageFallback image={imageDTO} />}
+                fallbackSrc={fallbackSrc ?? imageDTO.thumbnail_url}
+                fallback={fallbackSrc ? undefined : <IAILoadingImageFallback image={imageDTO} />}
                 onError={onError}
                 draggable={false}
                 w={imageDTO.width}
@@ -161,6 +162,7 @@ const IAIDndImage = (props: IAIDndImageProps) => {
                 borderRadius="base"
                 sx={imageSx}
                 data-testid={dataTestId}
+                onLoad={onLoad}
               />
               {withMetadataOverlay && <ImageMetadataOverlay imageDTO={imageDTO} />}
               <SelectionOverlay isSelected={isSelected} isHovered={withHoverOverlay ? isHovered : false} />
@@ -175,11 +177,13 @@ const IAIDndImage = (props: IAIDndImageProps) => {
             </>
           )}
           {!imageDTO && isUploadDisabled && noContentFallback}
-          {imageDTO && !isDragDisabled && (
+          {imageDTO && !isDragDisabled && draggableData && (
             <IAIDraggable data={draggableData} disabled={isDragDisabled || !imageDTO} onClick={onClick} />
           )}
           {children}
-          {!isDropDisabled && <IAIDroppable data={droppableData} disabled={isDropDisabled} dropLabel={dropLabel} />}
+          {!isDropDisabled && droppableData && (
+            <IAIDroppable data={droppableData} disabled={isDropDisabled} dropLabel={dropLabel} />
+          )}
         </Flex>
       )}
     </ImageContextMenu>

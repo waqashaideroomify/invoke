@@ -12,14 +12,19 @@ import type {
 } from '@dnd-kit/core';
 import type { BoardId } from 'features/gallery/store/types';
 import type { FieldInputInstance, FieldInputTemplate } from 'features/nodes/types/field';
+import type { ViewerMode } from 'features/ui/store/uiTypes';
 import type { ImageDTO } from 'services/api/types';
 
 type BaseDropData = {
   id: string;
 };
 
-export type CurrentImageDropData = BaseDropData & {
-  actionType: 'SET_CURRENT_IMAGE';
+export type ViewerImageDropData = BaseDropData & {
+  actionType: 'SET_VIEWER_IMAGE';
+  context: {
+    viewerMode: ViewerMode;
+    currentImageName?: string | null;
+  };
 };
 
 export type InitialImageDropData = BaseDropData & {
@@ -59,13 +64,13 @@ export type RemoveFromBoardDropData = BaseDropData & {
 };
 
 export type TypesafeDroppableData =
-  | CurrentImageDropData
   | InitialImageDropData
   | ControlAdapterDropData
   | CanvasInitialImageDropData
   | NodesImageDropData
   | AddToBoardDropData
-  | RemoveFromBoardDropData;
+  | RemoveFromBoardDropData
+  | ViewerImageDropData;
 
 type BaseDragData = {
   id: string;

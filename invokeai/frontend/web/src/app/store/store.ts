@@ -20,6 +20,7 @@ import { nodesTemplatesSlice } from 'features/nodes/store/nodeTemplatesSlice';
 import { workflowPersistConfig, workflowSlice } from 'features/nodes/store/workflowSlice';
 import { generationPersistConfig, generationSlice } from 'features/parameters/store/generationSlice';
 import { postprocessingPersistConfig, postprocessingSlice } from 'features/parameters/store/postprocessingSlice';
+import { progressPersistConfig, progressSlice } from 'features/progress/store/progressSlice';
 import { queueSlice } from 'features/queue/store/queueSlice';
 import { sdxlPersistConfig, sdxlSlice } from 'features/sdxl/store/sdxlSlice';
 import { configSlice } from 'features/system/store/configSlice';
@@ -61,6 +62,7 @@ const allReducers = {
   [queueSlice.name]: queueSlice.reducer,
   [workflowSlice.name]: workflowSlice.reducer,
   [hrfSlice.name]: hrfSlice.reducer,
+  [progressSlice.name]: progressSlice.reducer,
   [api.reducerPath]: api.reducer,
 };
 
@@ -105,6 +107,7 @@ const persistConfigs: { [key in keyof typeof allReducers]?: PersistConfig } = {
   [loraPersistConfig.name]: loraPersistConfig,
   [modelManagerPersistConfig.name]: modelManagerPersistConfig,
   [hrfPersistConfig.name]: hrfPersistConfig,
+  [progressPersistConfig.name]: progressPersistConfig,
 };
 
 const unserialize: UnserializeFunction = (data, key) => {

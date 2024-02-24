@@ -1,10 +1,11 @@
 import type { PayloadAction } from '@reduxjs/toolkit';
 import { createSlice } from '@reduxjs/toolkit';
 import type { PersistConfig, RootState } from 'app/store/store';
+import { galleryImageClicked } from 'features/gallery/store/gallerySlice';
 import { initialImageChanged } from 'features/parameters/store/generationSlice';
 
 import type { InvokeTabName } from './tabMap';
-import type { UIState } from './uiTypes';
+import type { UIState, ViewerMode } from './uiTypes';
 
 export const initialUIState: UIState = {
   _version: 1,
@@ -14,6 +15,7 @@ export const initialUIState: UIState = {
   panels: {},
   accordions: {},
   expanders: {},
+  viewerMode: 'image',
 };
 
 export const uiSlice = createSlice({
@@ -40,10 +42,21 @@ export const uiSlice = createSlice({
       const { id, isOpen } = action.payload;
       state.expanders[id] = isOpen;
     },
+    viewerModeChanged: (state, action: PayloadAction<ViewerMode>) => {
+      state.viewerMode = action.payload;
+    },
   },
   extraReducers(builder) {
     builder.addCase(initialImageChanged, (state) => {
       state.activeTab = 'img2img';
+    });
+
+    builder.addCase(galleryImageClicked, (state) => {
+      // When a gallery image is clicked and we are in progress mode, switch to image mode.
+      // This is not the same as the gallery _selection_ being changed.
+      if (state.viewerMode === 'progress') {
+        state.viewerMode = 'image';
+      }
     });
   },
 });
@@ -55,6 +68,7 @@ export const {
   panelsChanged,
   accordionStateChanged,
   expanderStateChanged,
+  viewerModeChanged,
 } = uiSlice.actions;
 
 export const selectUiSlice = (state: RootState) => state.ui;
