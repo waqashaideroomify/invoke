@@ -52,6 +52,7 @@ class ModelProbe(object):
     CLASS2TYPE = {
         "StableDiffusionPipeline": ModelType.Main,
         "StableDiffusionInpaintPipeline": ModelType.Main,
+        "StableDiffusionUpscalePipeline": ModelType.Main,
         "StableDiffusionXLPipeline": ModelType.Main,
         "StableDiffusionXLImg2ImgPipeline": ModelType.Main,
         "StableDiffusionXLInpaintPipeline": ModelType.Main,

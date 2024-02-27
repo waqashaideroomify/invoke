@@ -194,6 +194,8 @@ class StableDiffusion2Model(DiffusersModel):
             variant = ModelVariantType.Depth
         elif in_channels == 4:
             variant = ModelVariantType.Normal
+        elif in_channels == 7:
+            variant = ModelVariantType.Normal  # FIXME: temp kludge for 4x upscaler
         else:
             raise Exception("Unkown stable diffusion 2.* model format")
 
