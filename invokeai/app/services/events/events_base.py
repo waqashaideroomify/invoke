@@ -1,7 +1,8 @@
 # Copyright (c) 2022 Kyle Schouviller (https://github.com/kyle0654)
 
 
-from typing import Any, Dict, List, Optional, Union
+from distutils.command import upload
+from typing import Any, Dict, List, Optional, Union, Literal
 
 from invokeai.app.services.invocation_processor.invocation_processor_common import ProgressImage
 from invokeai.app.services.session_queue.session_queue_common import (
@@ -14,11 +15,14 @@ from invokeai.app.util.misc import get_timestamp
 from invokeai.backend.model_management.model_manager import ModelInfo
 from invokeai.backend.model_management.models.base import BaseModelType, ModelType, SubModelType
 
+StatusType = Literal['started', 'processing', 'done', 'error']
+
 
 class EventServiceBase:
     queue_event: str = "queue_event"
     download_event: str = "download_event"
     model_event: str = "model_event"
+    upload_event: str = "upload_event"
 
     """Basic event bus, to have an empty stand-in when not needed"""
 
@@ -44,6 +48,13 @@ class EventServiceBase:
         payload["timestamp"] = get_timestamp()
         self.dispatch(
             event_name=EventServiceBase.model_event,
+            payload={"event": event_name, "data": payload},
+        )
+
+    def __emit_upload_event(self, event_name: str, payload: dict) -> None:
+        payload["timestamp"] = get_timestamp()
+        self.dispatch(
+            event_name=EventServiceBase.upload_event,
             payload={"event": event_name, "data": payload},
         )
 
@@ -493,3 +504,48 @@ class EventServiceBase:
                 "error": error,
             },
         )
+
+    def emit_upload_images(
+            self,
+            status: StatusType = 'started',
+            message: Optional[str] = None,
+            progress: Optional[float] = None,
+            processed: Optional[int] = None,
+            total: Optional[int] = None,
+            errors: Optional[List[str]] = None,
+            images_uploading: Optional[List[str]] = None,
+            images_DTOs: Optional[List[dict]] = None
+    ) -> None:
+        """
+        Emit the image upload process to the frontend.
+
+        :param status: The status of the queue ('started', 'processing', 'done', 'error').
+        :param message: A message indicating the current state of the upload process.
+        :param progress: The percentage of images out of the total images that were processed.
+        :param processed: The number of images that have been processed so far out of the total images.
+        :param total: The total number of images that are about to be processed.
+        :param errors: A list of error messages encountered during the upload process, if any.
+        :param images_uploading: The list of images currently being uploaded.
+        :param images_DTOs: The list of Image Data Transfer Objects (DTOs) that are done uploading.
+        """
+        
+        payload = {
+            "status": status,
+            "message": message
+        }
+
+        # Conditionally add fields if they have meaningful values
+        if progress is not None:
+            payload["progress"] = progress
+        if processed is not None:
+            payload["processed"] = processed
+        if total is not None:
+            payload["total"] = total
+        if errors:
+            payload["errors"] = errors
+        if images_uploading:
+            payload["images_uploading"] = images_uploading
+        if images_DTOs:
+            payload["images_DTOs"] = images_DTOs
+
+        self.__emit_upload_event(event_name="upload_images", payload=payload)

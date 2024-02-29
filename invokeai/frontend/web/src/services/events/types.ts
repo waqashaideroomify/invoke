@@ -1,5 +1,12 @@
 import type { components } from 'services/api/schema';
-import type { BaseModelType, Graph, GraphExecutionState, ModelType, SubModelType } from 'services/api/types';
+import type {
+  BaseModelType,
+  Graph,
+  GraphExecutionState,
+  ModelType,
+  SubModelType,
+} from 'services/api/types';
+import type { ImageDTO } from 'services/api/types';
 
 /**
  * A progress image, we get one for each step in the generation
@@ -202,17 +209,31 @@ export type ClientEmitUnsubscribeQueue = {
   queue_id: string;
 };
 
+export type UploadImagesEvent = {
+  status: 'started' | 'processing' | 'done' | 'error';
+  message?: string;
+  progress?: number;
+  processed?: number;
+  total?: number;
+  errors?: string[];
+  images_uploading?: string[];
+  images_DTOs?: ImageDTO[];
+};
+
 export type ServerToClientEvents = {
   generator_progress: (payload: GeneratorProgressEvent) => void;
   invocation_complete: (payload: InvocationCompleteEvent) => void;
   invocation_error: (payload: InvocationErrorEvent) => void;
   invocation_started: (payload: InvocationStartedEvent) => void;
-  graph_execution_state_complete: (payload: GraphExecutionStateCompleteEvent) => void;
+  graph_execution_state_complete: (
+    payload: GraphExecutionStateCompleteEvent
+  ) => void;
   model_load_started: (payload: ModelLoadStartedEvent) => void;
   model_load_completed: (payload: ModelLoadCompletedEvent) => void;
   session_retrieval_error: (payload: SessionRetrievalErrorEvent) => void;
   invocation_retrieval_error: (payload: InvocationRetrievalErrorEvent) => void;
   queue_item_status_changed: (payload: QueueItemStatusChangedEvent) => void;
+  upload_images: (payload: UploadImagesEvent) => void;
 };
 
 export type ClientToServerEvents = {

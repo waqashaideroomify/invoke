@@ -15,6 +15,7 @@ import {
   socketModelLoadStarted,
   socketQueueItemStatusChanged,
   socketSessionRetrievalError,
+  socketUploadImages,
 } from 'services/events/actions';
 import type { ClientToServerEvents, ServerToClientEvents } from 'services/events/types';
 import type { Socket } from 'socket.io-client';
@@ -149,5 +150,12 @@ export const setEventListeners = (arg: SetEventListenersArg) => {
 
   socket.on('queue_item_status_changed', (data) => {
     dispatch(socketQueueItemStatusChanged({ data }));
+  });
+
+  /**
+   * image Upload started event
+   */
+  socket.on('upload_images', (data) => {
+    dispatch(socketUploadImages({ data }));
   });
 };

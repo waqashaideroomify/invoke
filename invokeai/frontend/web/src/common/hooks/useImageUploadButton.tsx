@@ -59,7 +59,7 @@ export const useImageUploadButton = ({ postUploadAction, isDisabled }: UseImageU
     onDropAccepted,
     disabled: isDisabled,
     noDrag: true,
-    multiple: false,
+    multiple: true,
   });
 
   return { getUploadButtonProps, getUploadInputProps, openUploader };

@@ -1,8 +1,8 @@
 import io
 import traceback
-from typing import Optional
+from typing import Optional, List, Dict
 
-from fastapi import Body, HTTPException, Path, Query, Request, Response, UploadFile
+from fastapi import Body, HTTPException, Path, Query, Request, Response, UploadFile, BackgroundTasks
 from fastapi.responses import FileResponse
 from fastapi.routing import APIRouter
 from PIL import Image
@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from invokeai.app.invocations.baseinvocation import MetadataField, MetadataFieldValidator
 from invokeai.app.services.image_records.image_records_common import ImageCategory, ImageRecordChanges, ResourceOrigin
-from invokeai.app.services.images.images_common import ImageDTO, ImageUrlsDTO
+from invokeai.app.services.images.images_common import ImageDTO, ImageUrlsDTO, ImageUploadData
 from invokeai.app.services.shared.pagination import OffsetPaginatedResults
 from invokeai.app.services.workflow_records.workflow_records_common import WorkflowWithoutID, WorkflowWithoutIDValidator
 
@@ -21,6 +21,101 @@ images_router = APIRouter(prefix="/v1/images", tags=["images"])
 
 # images are immutable; set a high max-age
 IMAGE_MAX_AGE = 31536000
+
+@images_router.post(
+    "/upload_multiple",
+    operation_id="upload_multiple_images",
+    responses={
+        201: {"description": "The images are being prepared for upload"},
+        415: {"description": "Images upload failed"},
+    },
+    status_code=201,  
+    response_model=Dict[str, str],
+)
+async def upload_images(
+    files: List[UploadFile],
+    background_tasks: BackgroundTasks,
+    request: Request,
+    response: Response,
+    image_category: ImageCategory = Query(description="The category of the images"),
+    is_intermediate: bool = Query(description="Whether this is an intermediate images"),
+    board_id: Optional[str] = Query(default=None, description="The board to add this images to, if any"),
+    session_id: Optional[str] = Query(default=None, description="The session ID associated with this upload, if any"),
+    crop_visible: Optional[bool] = Query(default=False, description="Whether to crop the images"),
+) -> Dict[str, str]:
+    """Uploads multiple images"""
+    upload_data_list = []
+    # emit event for upload started
+    ApiDependencies.invoker.services.events.emit_upload_images(
+        message=f"Upload job started for {len(files)} images...",
+        status="started",
+        total=len(files),
+        images_uploading=[file.filename for file in files if file.filename is not None],
+    )
+
+    # loop to handle multiple files
+    for file in files:
+        if not file.content_type or not file.content_type.startswith("image"):
+            ApiDependencies.invoker.services.events.emit_upload_images(
+            message="Upload job failed...",
+            status="error",
+            errors=["Not an image"],
+            )
+            raise HTTPException(status_code=415, detail="Not an image")
+
+        metadata = None
+        workflow = None
+
+        contents = await file.read()
+        try:
+            pil_image = Image.open(io.BytesIO(contents))
+            if crop_visible:
+                bbox = pil_image.getbbox()
+                pil_image = pil_image.crop(bbox)
+        except Exception:
+            ApiDependencies.invoker.services.logger.error(traceback.format_exc())
+            ApiDependencies.invoker.services.events.emit_upload_images(
+            message="Upload job failed...",
+            status="error",
+            errors=["Failed to read image"],
+            )
+            raise HTTPException(status_code=415, detail="Failed to read image")
+
+        # attempt to parse metadata from image
+        metadata_raw = pil_image.info.get("invokeai_metadata", None)
+        if metadata_raw:
+            try:
+                metadata = MetadataFieldValidator.validate_json(metadata_raw)
+            except ValidationError:
+                ApiDependencies.invoker.services.logger.warn("Failed to parse metadata for uploaded image")
+                pass
+
+        # attempt to parse workflow from image
+        workflow_raw = pil_image.info.get("invokeai_workflow", None)
+        if workflow_raw is not None:
+            try:
+                workflow = WorkflowWithoutIDValidator.validate_json(workflow_raw)
+            except ValidationError:
+                ApiDependencies.invoker.services.logger.warn("Failed to parse metadata for uploaded image")
+                pass
+        # construct an ImageUploadData object for each file
+        upload_data = ImageUploadData(
+            image=pil_image,
+            image_origin=ResourceOrigin.EXTERNAL,
+            image_category=image_category,
+            session_id=session_id,
+            board_id=board_id,
+            metadata=metadata,
+            workflow=workflow,
+            is_intermediate=is_intermediate
+        )
+        upload_data_list.append(upload_data)
+
+    # Schedule image processing as a background task
+    background_tasks.add_task(ApiDependencies.invoker.services.images.create_multiple, upload_data_list)
+
+    # Return a response immediately
+    return {"message": "Images are being processed"}
 
 
 @images_router.post(
@@ -44,6 +139,7 @@ async def upload_image(
     crop_visible: Optional[bool] = Query(default=False, description="Whether to crop the image"),
 ) -> ImageDTO:
     """Uploads an image"""
+
     if not file.content_type or not file.content_type.startswith("image"):
         raise HTTPException(status_code=415, detail="Not an image")
 
@@ -63,9 +159,11 @@ async def upload_image(
     # TODO: retain non-invokeai metadata on upload?
     # attempt to parse metadata from image
     metadata_raw = pil_image.info.get("invokeai_metadata", None)
+    print(metadata_raw)
     if metadata_raw:
         try:
             metadata = MetadataFieldValidator.validate_json(metadata_raw)
+            print(metadata)
         except ValidationError:
             ApiDependencies.invoker.services.logger.warn("Failed to parse metadata for uploaded image")
             pass
@@ -109,7 +207,7 @@ async def delete_image(
     try:
         ApiDependencies.invoker.services.images.delete(image_name)
     except Exception:
-        # TODO: Does this need any exception handling at all?
+        # TOD0O: Does this need any exception handling at all?
         pass
 
 

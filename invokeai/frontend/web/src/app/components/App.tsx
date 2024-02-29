@@ -5,6 +5,7 @@ import { appStarted } from 'app/store/middleware/listenerMiddleware/listeners/ap
 import { useAppDispatch, useAppSelector } from 'app/store/storeHooks';
 import type { PartialAppConfig } from 'app/types/invokeai';
 import ImageUploadOverlay from 'common/components/ImageUploadOverlay';
+import UploadProgressToastManager from 'common/components/UploadProgressToast';
 import { useClearStorage } from 'common/hooks/useClearStorage';
 import { useFullscreenDropzone } from 'common/hooks/useFullscreenDropzone';
 import { useGlobalHotkeys } from 'common/hooks/useGlobalHotkeys';
@@ -90,6 +91,8 @@ const App = ({ config = DEFAULT_CONFIG, selectedImage }: Props) => {
       <ChangeBoardModal />
       <DynamicPromptsModal />
       <Toaster />
+      {/* "custom" toast for the Upload progress toast */}
+      <UploadProgressToastManager />{' '}
       <PreselectedImage selectedImage={selectedImage} />
     </ErrorBoundary>
   );
