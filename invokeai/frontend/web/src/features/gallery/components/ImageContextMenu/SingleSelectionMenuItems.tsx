@@ -1,6 +1,7 @@
 import { Flex, MenuDivider, MenuItem, Spinner } from '@invoke-ai/ui-library';
 import { useStore } from '@nanostores/react';
 import { useAppToaster } from 'app/components/Toaster';
+import { galleryImageClicked } from 'app/store/middleware/listenerMiddleware/listeners/galleryImageClicked';
 import { $customStarUI } from 'app/store/nanostores/customStarUI';
 import { useAppDispatch, useAppSelector } from 'app/store/storeHooks';
 import { useCopyImageToClipboard } from 'common/hooks/useCopyImageToClipboard';
@@ -13,7 +14,7 @@ import { sentImageToCanvas, sentImageToImg2Img } from 'features/gallery/store/ac
 import { initialImageSelected } from 'features/parameters/store/actions';
 import { selectOptimalDimension } from 'features/parameters/store/generationSlice';
 import { useFeatureStatus } from 'features/system/hooks/useFeatureStatus';
-import { setActiveTab } from 'features/ui/store/uiSlice';
+import { setActiveTab, setShouldShowShowcase } from 'features/ui/store/uiSlice';
 import { useGetAndLoadEmbeddedWorkflow } from 'features/workflowLibrary/hooks/useGetAndLoadEmbeddedWorkflow';
 import { memo, useCallback } from 'react';
 import { flushSync } from 'react-dom';
@@ -115,6 +116,18 @@ const SingleSelectionMenuItems = (props: SingleSelectionMenuItemsProps) => {
     downloadImage(imageDTO.image_url, imageDTO.image_name);
   }, [downloadImage, imageDTO.image_name, imageDTO.image_url]);
 
+  const handleOpenInShowcase = useCallback(() => {
+    dispatch(
+      galleryImageClicked({
+        imageDTO,
+        shiftKey: false,
+        ctrlKey: false,
+        metaKey: false,
+      })
+    );
+    dispatch(setShouldShowShowcase(imageDTO));
+  }, [dispatch, imageDTO]);
+
   return (
     <>
       <MenuItem as="a" href={imageDTO.image_url} target="_blank" icon={<PiShareFatBold />}>
@@ -128,6 +141,11 @@ const SingleSelectionMenuItems = (props: SingleSelectionMenuItemsProps) => {
       <MenuItem icon={<PiDownloadSimpleBold />} onClickCapture={handleDownloadImage}>
         {t('parameters.downloadImage')}
       </MenuItem>
+
+      <MenuItem icon={<PiShareFatBold />} onClickCapture={handleOpenInShowcase}>
+        {t('common.openShowcase')}
+      </MenuItem>
+
       <MenuDivider />
       <MenuItem
         icon={getAndLoadEmbeddedWorkflowResult.isLoading ? <SpinnerIcon /> : <PiFlowArrowBold />}

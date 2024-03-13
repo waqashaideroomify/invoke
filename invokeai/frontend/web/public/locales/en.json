@@ -132,6 +132,8 @@
         "nodesDesc": "A node based system for the generation of images is under development currently. Stay tuned for updates about this amazing feature.",
         "notInstalled": "Not $t(common.installed)",
         "openInNewTab": "Open in New Tab",
+        "openShowcase": "Open in Showcase",
+        "closeShowcase": "Close Showcase",
         "orderBy": "Order By",
         "outpaint": "outpaint",
         "outputs": "Outputs",
@@ -652,6 +654,10 @@
         "toggleSnap": {
             "desc": "Toggles Snap to Grid",
             "title": "Toggle Snap"
+        },
+        "toggleShowcase": {
+            "desc": "Open and close the Showcase",
+            "title": "Toggle Showcase"
         },
         "undoStroke": {
             "desc": "Undo a brush stroke",
@@ -1781,6 +1787,14 @@
             "heading": "Seamless Tiling Y Axis",
             "paragraphs": ["Seamlessly tile an image along the vertical axis."]
         }
+    },
+    "showcase": {
+        "seamlessChecker": "Seamless Checker",
+        "zoomIn": "Zoom In",
+        "zoomOut": "Zoom Out",
+        "resetPosition": "Reset Position",
+        "resetZoom": "Reset Zoom",
+        "resetView": "Reset View"
     },
     "ui": {
         "hideProgressImages": "Hide Progress Images",
