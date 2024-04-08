@@ -61,6 +61,7 @@ import { get, isArray, isString } from 'lodash-es';
 import { imagesApi } from 'services/api/endpoints/images';
 import type { ImageDTO } from 'services/api/types';
 import {
+  isCLIPVisionModelConfig,
   isControlNetModelConfig,
   isIPAdapterModelConfig,
   isLoRAModelConfig,
@@ -360,6 +361,7 @@ const parseIPAdapter: MetadataParseFunc<IPAdapterConfigMetadata> = async (metada
   const ip_adapter_model = await getProperty(metadataItem, 'ip_adapter_model');
   const key = await getModelKey(ip_adapter_model, 'ip_adapter');
   const ipAdapterModel = await fetchModelConfigWithTypeGuard(key, isIPAdapterModelConfig);
+  const clipVisionModel = await fetchModelConfigWithTypeGuard(key, isCLIPVisionModelConfig);
 
   const image = zIPAdapterField.shape.image
     .nullish()
@@ -383,7 +385,7 @@ const parseIPAdapter: MetadataParseFunc<IPAdapterConfigMetadata> = async (metada
     type: 'ip_adapter',
     isEnabled: true,
     model: zModelIdentifierField.parse(ipAdapterModel),
-    clipVisionModel: 'ViT-H',
+    clipVisionModel: zModelIdentifierField.parse(clipVisionModel),
     controlImage: image?.image_name ?? null,
     weight: weight ?? initialIPAdapter.weight,
     beginStepPct: begin_step_percent ?? initialIPAdapter.beginStepPct,

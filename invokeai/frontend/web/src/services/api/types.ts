@@ -51,7 +51,7 @@ export type T2IAdapterModelConfig = S['T2IAdapterConfig'];
 type TextualInversionModelConfig = S['TextualInversionFileConfig'] | S['TextualInversionFolderConfig'];
 type DiffusersModelConfig = S['MainDiffusersConfig'];
 type CheckpointModelConfig = S['MainCheckpointConfig'];
-type CLIPVisionDiffusersConfig = S['CLIPVisionDiffusersConfig'];
+export type CLIPVisionModelConfig = S['CLIPVisionDiffusersConfig'] | S['CLIPVisionCheckpointConfig'];
 export type MainModelConfig = DiffusersModelConfig | CheckpointModelConfig;
 export type AnyModelConfig =
   | LoRAModelConfig
@@ -61,7 +61,7 @@ export type AnyModelConfig =
   | T2IAdapterModelConfig
   | TextualInversionModelConfig
   | MainModelConfig
-  | CLIPVisionDiffusersConfig;
+  | CLIPVisionModelConfig;
 
 export const isLoRAModelConfig = (config: AnyModelConfig): config is LoRAModelConfig => {
   return config.type === 'lora';
@@ -69,6 +69,10 @@ export const isLoRAModelConfig = (config: AnyModelConfig): config is LoRAModelCo
 
 export const isVAEModelConfig = (config: AnyModelConfig): config is VAEModelConfig => {
   return config.type === 'vae';
+};
+
+export const isCLIPVisionModelConfig = (config: AnyModelConfig): config is CLIPVisionModelConfig => {
+  return config.type === 'clip_vision';
 };
 
 export const isControlNetModelConfig = (config: AnyModelConfig): config is ControlNetModelConfig => {
@@ -140,6 +144,7 @@ export type CanvasPasteBackInvocation = S['CanvasPasteBackInvocation'];
 export type NoiseInvocation = S['NoiseInvocation'];
 export type DenoiseLatentsInvocation = S['DenoiseLatentsInvocation'];
 export type SDXLLoRALoaderInvocation = S['SDXLLoRALoaderInvocation'];
+export type CLIPVisionModelLoaderInvocation = S['CLIPVisionModelLoaderInvocation'];
 export type ImageToLatentsInvocation = S['ImageToLatentsInvocation'];
 export type LatentsToImageInvocation = S['LatentsToImageInvocation'];
 export type LoRALoaderInvocation = S['LoRALoaderInvocation'];
