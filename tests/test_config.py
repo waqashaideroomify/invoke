@@ -1,22 +1,36 @@
+from contextlib import contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any
+from typing import Any, Generator
 
 import pytest
-from omegaconf import OmegaConf
+from packaging.version import Version
 from pydantic import ValidationError
 
+from invokeai.app.invocations.baseinvocation import BaseInvocation
+from invokeai.app.invocations.primitives import FloatInvocation, IntegerInvocation, StringInvocation
 from invokeai.app.services.config.config_default import (
+    CONFIG_SCHEMA_VERSION,
     DefaultInvokeAIAppConfig,
     InvokeAIAppConfig,
     get_config,
     load_and_migrate_config,
 )
+from invokeai.app.services.config.config_migrate import ConfigMigrator
+from invokeai.app.services.shared.graph import Graph
 from invokeai.frontend.cli.arg_parser import InvokeAIArgs
+
+invalid_v4_0_1_config = """
+schema_version: 4.0.1
+
+host: "192.168.1.1"
+port: "ice cream"
+"""
 
 v4_config = """
 schema_version: 4.0.0
 
+precision: autocast
 host: "192.168.1.1"
 port: 8080
 """
@@ -134,6 +148,16 @@ def test_migrate_v3_backup(tmp_path: Path, patch_rootdir: None):
     assert temp_config_file.with_suffix(".yaml.bak").read_text() == v3_config
 
 
+def test_migrate_v4(tmp_path: Path, patch_rootdir: None):
+    """Test migration from 4.0.0 to 4.0.1"""
+    temp_config_file = tmp_path / "temp_invokeai.yaml"
+    temp_config_file.write_text(v4_config)
+
+    conf = load_and_migrate_config(temp_config_file)
+    assert Version(conf.schema_version) >= Version("4.0.1")
+    assert conf.precision == "auto"  # we expect 'autocast' to be replaced with 'auto' during 4.0.1 migration
+
+
 def test_failed_migrate_backup(tmp_path: Path, patch_rootdir: None):
     """Test the failed migration of the config file."""
     temp_config_file = tmp_path / "temp_invokeai.yaml"
@@ -156,12 +180,14 @@ def test_bails_on_invalid_config(tmp_path: Path, patch_rootdir: None):
         load_and_migrate_config(temp_config_file)
 
 
-def test_bails_on_config_with_unsupported_version(tmp_path: Path, patch_rootdir: None):
+@pytest.mark.parametrize("config_content", [invalid_v5_config, invalid_v4_0_1_config])
+def test_bails_on_config_with_unsupported_version(tmp_path: Path, patch_rootdir: None, config_content: str):
     """Test reading configuration from a file."""
     temp_config_file = tmp_path / "temp_invokeai.yaml"
-    temp_config_file.write_text(invalid_v5_config)
+    temp_config_file.write_text(config_content)
 
-    with pytest.raises(RuntimeError, match="Invalid schema version"):
+    #    with pytest.raises(RuntimeError, match="Invalid schema version"):
+    with pytest.raises(RuntimeError):
         load_and_migrate_config(temp_config_file)
 
 
@@ -265,58 +291,71 @@ def test_get_config_writing(patch_rootdir: None, monkeypatch: pytest.MonkeyPatch
     InvokeAIArgs.did_parse = False
 
 
-@pytest.mark.xfail(
-    reason="""
-    This test fails when run as part of the full test suite.
+def test_migration_check() -> None:
+    new_config = ConfigMigrator.migrate({"schema_version": "4.0.0"})
+    assert new_config is not None
+    assert new_config["schema_version"] == CONFIG_SCHEMA_VERSION
 
-    This test needs to deny nodes from being included in the InvocationsUnion by providing
-    an app configuration as a test fixture. Pytest executes all test files before running
-    tests, so the app configuration is already initialized by the time this test runs, and
-    the InvocationUnion is already created and the denied nodes are not omitted from it.
+    # Does this execute at compile time or run time?
+    @ConfigMigrator.register(from_version=CONFIG_SCHEMA_VERSION, to_version=CONFIG_SCHEMA_VERSION + ".1")
+    def ok_migration(config_dict: dict[str, Any]) -> dict[str, Any]:
+        return config_dict
 
-    This test passes when `test_config.py` is tested in isolation.
+    new_config = ConfigMigrator.migrate({"schema_version": "4.0.0"})
+    assert new_config["schema_version"] == CONFIG_SCHEMA_VERSION + ".1"
 
-    Perhaps a solution would be to call `get_app_config().parse_args()` in
-    other test files?
-    """
-)
-def test_deny_nodes(patch_rootdir):
-    # Allow integer, string and float, but explicitly deny float
-    allow_deny_nodes_conf = OmegaConf.create(
-        """
-        InvokeAI:
-          Nodes:
-            allow_nodes:
-              - integer
-              - string
-              - float
-            deny_nodes:
-              - float
-        """
-    )
-    # must parse config before importing Graph, so its nodes union uses the config
-    get_config.cache_clear()
-    conf = get_config()
-    get_config.cache_clear()
-    conf.merge_from_file(conf=allow_deny_nodes_conf, argv=[])
-    from invokeai.app.services.shared.graph import Graph
+    @ConfigMigrator.register(from_version=CONFIG_SCHEMA_VERSION + ".2", to_version=CONFIG_SCHEMA_VERSION + ".3")
+    def bad_migration(config_dict: dict[str, Any]) -> dict[str, Any]:
+        return config_dict
 
-    # confirm graph validation fails when using denied node
-    Graph(nodes={"1": {"id": "1", "type": "integer"}})
-    Graph(nodes={"1": {"id": "1", "type": "string"}})
+    # Because there is no version for "*.1" => "*.2", this should fail.
+    with pytest.raises(ValueError):
+        ConfigMigrator.migrate({"schema_version": "4.0.0"})
 
-    with pytest.raises(ValidationError):
-        Graph(nodes={"1": {"id": "1", "type": "float"}})
+    @ConfigMigrator.register(from_version=CONFIG_SCHEMA_VERSION + ".1", to_version=CONFIG_SCHEMA_VERSION + ".2")
+    def good_migration(config_dict: dict[str, Any]) -> dict[str, Any]:
+        return config_dict
 
-    from invokeai.app.invocations.baseinvocation import BaseInvocation
+    # should work now, because there is a continuous path to *.3
+    new_config = ConfigMigrator.migrate(new_config)
+    assert new_config["schema_version"] == CONFIG_SCHEMA_VERSION + ".3"
 
-    # confirm invocations union will not have denied nodes
-    all_invocations = BaseInvocation.get_invocations()
 
-    has_integer = len([i for i in all_invocations if i.model_fields.get("type").default == "integer"]) == 1
-    has_string = len([i for i in all_invocations if i.model_fields.get("type").default == "string"]) == 1
-    has_float = len([i for i in all_invocations if i.model_fields.get("type").default == "float"]) == 1
+@contextmanager
+def clear_config() -> Generator[None, None, None]:
+    try:
+        yield None
+    finally:
+        # First clear the config cache to avoid interfering with later tests
+        get_config.cache_clear()
+        # Clear the BaseInvocation's cached typeadapter as well, for same reason.
+        BaseInvocation._typeadapter = None  # FIXME: Don't use protected members
 
-    assert has_integer
-    assert has_string
-    assert not has_float
+
+def test_deny_nodes() -> None:
+    with clear_config():
+        config = get_config()
+        config.allow_nodes = ["integer", "string", "float"]
+        config.deny_nodes = ["float"]
+
+        # confirm graph validation fails when using denied node
+        Graph(nodes={"1": IntegerInvocation(value=1)})
+        Graph(nodes={"1": StringInvocation(value="asdf")})
+
+        with pytest.raises(ValidationError):
+            Graph(nodes={"1": FloatInvocation(value=1.0)})
+
+        # Also test with a dict input
+        with pytest.raises(ValidationError):
+            Graph(nodes={"1": {"id": "1", "type": "float"}})
+
+        # confirm invocations union will not have denied nodes
+        all_invocations = BaseInvocation.get_invocations()
+
+        has_integer = len([i for i in all_invocations if i.get_type() == "integer"]) == 1
+        has_string = len([i for i in all_invocations if i.get_type() == "string"]) == 1
+        does_not_have_float = len([i for i in all_invocations if i.get_type() == "float"]) == 0
+
+        assert has_integer
+        assert has_string
+        assert does_not_have_float
