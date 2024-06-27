@@ -236,6 +236,9 @@ class SessionQueueItemWithoutGraph(BaseModel):
         }
     )
 
+    def __hash__(self) -> int:
+        return self.item_id
+
 
 class SessionQueueItemDTO(SessionQueueItemWithoutGraph):
     pass

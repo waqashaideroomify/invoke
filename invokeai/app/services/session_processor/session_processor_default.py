@@ -1,8 +1,9 @@
 import traceback
 from contextlib import suppress
-from threading import BoundedSemaphore, Thread
+from queue import Queue
+from threading import BoundedSemaphore, Lock, Thread
 from threading import Event as ThreadEvent
-from typing import Optional
+from typing import Optional, Set
 
 from invokeai.app.invocations.baseinvocation import BaseInvocation, BaseInvocationOutput
 from invokeai.app.services.events.events_common import (
@@ -26,6 +27,7 @@ from invokeai.app.services.session_queue.session_queue_common import SessionQueu
 from invokeai.app.services.shared.graph import NodeInputError
 from invokeai.app.services.shared.invocation_context import InvocationContextData, build_invocation_context
 from invokeai.app.util.profiler import Profiler
+from invokeai.backend.util.devices import TorchDevice
 
 from ..invoker import Invoker
 from .session_processor_base import InvocationServices, SessionProcessorBase, SessionRunnerBase
@@ -57,8 +59,11 @@ class DefaultSessionRunner(SessionRunnerBase):
         self._on_after_run_node_callbacks = on_after_run_node_callbacks or []
         self._on_node_error_callbacks = on_node_error_callbacks or []
         self._on_after_run_session_callbacks = on_after_run_session_callbacks or []
+        self._process_lock = Lock()
 
-    def start(self, services: InvocationServices, cancel_event: ThreadEvent, profiler: Optional[Profiler] = None):
+    def start(
+        self, services: InvocationServices, cancel_event: ThreadEvent, profiler: Optional[Profiler] = None
+    ) -> None:
         self._services = services
         self._cancel_event = cancel_event
         self._profiler = profiler
@@ -76,7 +81,8 @@ class DefaultSessionRunner(SessionRunnerBase):
         # Loop over invocations until the session is complete or canceled
         while True:
             try:
-                invocation = queue_item.session.next()
+                with self._process_lock:
+                    invocation = queue_item.session.next()
             # Anything other than a `NodeInputError` is handled as a processor error
             except NodeInputError as e:
                 error_type = e.__class__.__name__
@@ -108,7 +114,7 @@ class DefaultSessionRunner(SessionRunnerBase):
 
         self._on_after_run_session(queue_item=queue_item)
 
-    def run_node(self, invocation: BaseInvocation, queue_item: SessionQueueItem):
+    def run_node(self, invocation: BaseInvocation, queue_item: SessionQueueItem) -> None:
         try:
             # Any unhandled exception in this scope is an invocation error & will fail the graph
             with self._services.performance_statistics.collect_stats(invocation, queue_item.session_id):
@@ -210,7 +216,7 @@ class DefaultSessionRunner(SessionRunnerBase):
             # we don't care about that - suppress the error.
             with suppress(GESStatsNotFoundError):
                 self._services.performance_statistics.log_stats(queue_item.session.id)
-                self._services.performance_statistics.reset_stats()
+                self._services.performance_statistics.reset_stats(queue_item.session.id)
 
             for callback in self._on_after_run_session_callbacks:
                 callback(queue_item=queue_item)
@@ -324,7 +330,7 @@ class DefaultSessionProcessor(SessionProcessorBase):
 
     def start(self, invoker: Invoker) -> None:
         self._invoker: Invoker = invoker
-        self._queue_item: Optional[SessionQueueItem] = None
+        self._active_queue_items: Set[SessionQueueItem] = set()
         self._invocation: Optional[BaseInvocation] = None
 
         self._resume_event = ThreadEvent()
@@ -350,7 +356,14 @@ class DefaultSessionProcessor(SessionProcessorBase):
             else None
         )
 
+        self._worker_thread_count = self._invoker.services.configuration.max_threads or len(
+            TorchDevice.execution_devices()
+        )
+
+        self._session_worker_queue: Queue[SessionQueueItem] = Queue()
+
         self.session_runner.start(services=invoker.services, cancel_event=self._cancel_event, profiler=self._profiler)
+        # Session processor - singlethreaded
         self._thread = Thread(
             name="session_processor",
             target=self._process,
@@ -363,6 +376,16 @@ class DefaultSessionProcessor(SessionProcessorBase):
         )
         self._thread.start()
 
+        # Session processor workers - multithreaded
+        self._invoker.services.logger.debug(f"Starting {self._worker_thread_count} session processing threads.")
+        for _i in range(0, self._worker_thread_count):
+            worker = Thread(
+                name="session_worker",
+                target=self._process_next_session,
+                daemon=True,
+            )
+            worker.start()
+
     def stop(self, *args, **kwargs) -> None:
         self._stop_event.set()
 
@@ -370,7 +393,7 @@ class DefaultSessionProcessor(SessionProcessorBase):
         self._poll_now_event.set()
 
     async def _on_queue_cleared(self, event: FastAPIEvent[QueueClearedEvent]) -> None:
-        if self._queue_item and self._queue_item.queue_id == event[1].queue_id:
+        if any(item.queue_id == event[1].queue_id for item in self._active_queue_items):
             self._cancel_event.set()
             self._poll_now()
 
@@ -378,7 +401,7 @@ class DefaultSessionProcessor(SessionProcessorBase):
         self._poll_now()
 
     async def _on_queue_item_status_changed(self, event: FastAPIEvent[QueueItemStatusChangedEvent]) -> None:
-        if self._queue_item and event[1].status in ["completed", "failed", "canceled"]:
+        if self._active_queue_items and event[1].status in ["completed", "failed", "canceled"]:
             # When the queue item is canceled via HTTP, the queue item status is set to `"canceled"` and this event is
             # emitted. We need to respond to this event and stop graph execution. This is done by setting the cancel
             # event, which the session runner checks between invocations. If set, the session runner loop is broken.
@@ -403,7 +426,7 @@ class DefaultSessionProcessor(SessionProcessorBase):
     def get_status(self) -> SessionProcessorStatus:
         return SessionProcessorStatus(
             is_started=self._resume_event.is_set(),
-            is_processing=self._queue_item is not None,
+            is_processing=len(self._active_queue_items) > 0,
         )
 
     def _process(
@@ -428,30 +451,22 @@ class DefaultSessionProcessor(SessionProcessorBase):
                     resume_event.wait()
 
                     # Get the next session to process
-                    self._queue_item = self._invoker.services.session_queue.dequeue()
+                    queue_item = self._invoker.services.session_queue.dequeue()
 
-                    if self._queue_item is None:
+                    if queue_item is None:
                         # The queue was empty, wait for next polling interval or event to try again
                         self._invoker.services.logger.debug("Waiting for next polling interval or event")
                         poll_now_event.wait(self._polling_interval)
                         continue
 
-                    self._invoker.services.logger.debug(f"Executing queue item {self._queue_item.item_id}")
+                    self._session_worker_queue.put(queue_item)
+                    self._invoker.services.logger.debug(f"Scheduling queue item {queue_item.item_id} to run")
                     cancel_event.clear()
 
                     # Run the graph
-                    self.session_runner.run(queue_item=self._queue_item)
+                    # self.session_runner.run(queue_item=self._queue_item)
 
-                except Exception as e:
-                    error_type = e.__class__.__name__
-                    error_message = str(e)
-                    error_traceback = traceback.format_exc()
-                    self._on_non_fatal_processor_error(
-                        queue_item=self._queue_item,
-                        error_type=error_type,
-                        error_message=error_message,
-                        error_traceback=error_traceback,
-                    )
+                except Exception:
                     # Wait for next polling interval or event to try again
                     poll_now_event.wait(self._polling_interval)
                     continue
@@ -466,8 +481,24 @@ class DefaultSessionProcessor(SessionProcessorBase):
         finally:
             stop_event.clear()
             poll_now_event.clear()
-            self._queue_item = None
             self._thread_semaphore.release()
+
+    def _process_next_session(self) -> None:
+        while True:
+            self._resume_event.wait()
+            queue_item = self._session_worker_queue.get()
+            if queue_item.status == "canceled":
+                continue
+            try:
+                self._active_queue_items.add(queue_item)
+                # reserve a GPU for this session - may block
+                with self._invoker.services.model_manager.load.ram_cache.reserve_execution_device():
+                    # Run the session on the reserved GPU
+                    self.session_runner.run(queue_item=queue_item)
+            except Exception:
+                continue
+            finally:
+                self._active_queue_items.remove(queue_item)
 
     def _on_non_fatal_processor_error(
         self,

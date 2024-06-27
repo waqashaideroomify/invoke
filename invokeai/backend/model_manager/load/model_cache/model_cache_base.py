@@ -8,9 +8,10 @@ model will be cleared and (re)loaded from disk when next needed.
 """
 
 from abc import ABC, abstractmethod
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from logging import Logger
-from typing import Dict, Generic, Optional, TypeVar
+from typing import Dict, Generator, Generic, Optional, Set, TypeVar
 
 import torch
 
@@ -51,11 +52,10 @@ class CacheRecord(Generic[T]):
     Elements of the cache:
 
     key: Unique key for each model, same as used in the models database.
-    model: Model in memory.
+    model: Read-only copy of the model *without weights* residing in the "meta device"
     state_dict: A read-only copy of the model's state dict in RAM. It will be
                 used as a template for creating a copy in the VRAM.
     size: Size of the model
-    loaded: True if the model's state dict is currently in VRAM
 
     Before a model is executed, the state_dict template is copied into VRAM,
     and then injected into the model. When the model is finished, the VRAM
@@ -69,26 +69,9 @@ class CacheRecord(Generic[T]):
     """
 
     key: str
-    model: T
-    device: torch.device
-    state_dict: Optional[Dict[str, torch.Tensor]]
     size: int
-    loaded: bool = False
-    _locks: int = 0
-
-    def lock(self) -> None:
-        """Lock this record."""
-        self._locks += 1
-
-    def unlock(self) -> None:
-        """Unlock this record."""
-        self._locks -= 1
-        assert self._locks >= 0
-
-    @property
-    def locked(self) -> bool:
-        """Return true if record is locked."""
-        return self._locks > 0
+    model: T
+    state_dict: Optional[Dict[str, torch.Tensor]]
 
 
 @dataclass
@@ -115,30 +98,33 @@ class ModelCacheBase(ABC, Generic[T]):
 
     @property
     @abstractmethod
-    def execution_device(self) -> torch.device:
-        """Return the exection device (e.g. "cuda" for VRAM)."""
+    def execution_devices(self) -> Set[torch.device]:
+        """Return the set of available execution devices."""
         pass
 
-    @property
+    @contextmanager
     @abstractmethod
-    def lazy_offloading(self) -> bool:
-        """Return true if the cache is configured to lazily offload models in VRAM."""
+    def reserve_execution_device(self, timeout: int = 0) -> Generator[torch.device, None, None]:
+        """Reserve an execution device (GPU) under the current thread id."""
+        pass
+
+    @abstractmethod
+    def get_execution_device(self) -> torch.device:
+        """
+        Return an execution device that has been reserved for current thread.
+
+        Note that reservations are done using the current thread's TID.
+        It might be better to do this using the session ID, but that involves
+        too many detailed changes to model manager calls.
+
+        May generate a ValueError if no GPU has been reserved.
+        """
         pass
 
     @property
     @abstractmethod
     def max_cache_size(self) -> float:
         """Return true if the cache is configured to lazily offload models in VRAM."""
-        pass
-
-    @abstractmethod
-    def offload_unlocked_models(self, size_required: int) -> None:
-        """Offload from VRAM any models not actively in use."""
-        pass
-
-    @abstractmethod
-    def move_model_to_device(self, cache_entry: CacheRecord[AnyModel], target_device: torch.device) -> None:
-        """Move model into the indicated device."""
         pass
 
     @property
@@ -200,6 +186,11 @@ class ModelCacheBase(ABC, Generic[T]):
         submodel_type: Optional[SubModelType] = None,
     ) -> bool:
         """Return true if the model identified by key and submodel_type is in the cache."""
+        pass
+
+    @abstractmethod
+    def model_to_device(self, cache_entry: CacheRecord[AnyModel], target_device: torch.device) -> AnyModel:
+        """Move a copy of the model into the indicated device and return it."""
         pass
 
     @abstractmethod

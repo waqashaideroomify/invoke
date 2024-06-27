@@ -53,11 +53,11 @@ class InvocationServices:
         model_images: "ModelImageFileStorageBase",
         model_manager: "ModelManagerServiceBase",
         download_queue: "DownloadQueueServiceBase",
-        performance_statistics: "InvocationStatsServiceBase",
         session_queue: "SessionQueueBase",
         session_processor: "SessionProcessorBase",
         invocation_cache: "InvocationCacheBase",
         names: "NameServiceBase",
+        performance_statistics: "InvocationStatsServiceBase",
         urls: "UrlServiceBase",
         workflow_records: "WorkflowRecordsStorageBase",
         tensors: "ObjectSerializerBase[torch.Tensor]",
@@ -77,11 +77,11 @@ class InvocationServices:
         self.model_images = model_images
         self.model_manager = model_manager
         self.download_queue = download_queue
-        self.performance_statistics = performance_statistics
         self.session_queue = session_queue
         self.session_processor = session_processor
         self.invocation_cache = invocation_cache
         self.names = names
+        self.performance_statistics = performance_statistics
         self.urls = urls
         self.workflow_records = workflow_records
         self.tensors = tensors

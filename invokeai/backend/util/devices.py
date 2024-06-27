@@ -1,9 +1,15 @@
-from typing import Dict, Literal, Optional, Union
+"""Torch Device class provides torch device selection services."""
+
+from typing import TYPE_CHECKING, Dict, Literal, Optional, Set, Union
 
 import torch
 from deprecated import deprecated
 
 from invokeai.app.services.config.config_default import get_config
+
+if TYPE_CHECKING:
+    from invokeai.backend.model_manager.config import AnyModel
+    from invokeai.backend.model_manager.load.model_cache.model_cache_base import ModelCacheBase
 
 # legacy APIs
 TorchPrecisionNames = Literal["float32", "float16", "bfloat16"]
@@ -42,9 +48,23 @@ PRECISION_TO_NAME: Dict[torch.dtype, TorchPrecisionNames] = {v: k for k, v in NA
 class TorchDevice:
     """Abstraction layer for torch devices."""
 
+    _model_cache: Optional["ModelCacheBase[AnyModel]"] = None
+
+    @classmethod
+    def set_model_cache(cls, cache: "ModelCacheBase[AnyModel]"):
+        """Set the current model cache."""
+        cls._model_cache = cache
+
     @classmethod
     def choose_torch_device(cls) -> torch.device:
         """Return the torch.device to use for accelerated inference."""
+        if cls._model_cache:
+            return cls._model_cache.get_execution_device()
+        else:
+            return cls._choose_device()
+
+    @classmethod
+    def _choose_device(cls) -> torch.device:
         app_config = get_config()
         if app_config.device != "auto":
             device = torch.device(app_config.device)
@@ -57,10 +77,18 @@ class TorchDevice:
         return cls.normalize(device)
 
     @classmethod
+    def execution_devices(cls) -> Set[torch.device]:
+        """Return a list of torch.devices that can be used for accelerated inference."""
+        app_config = get_config()
+        if app_config.devices is None:
+            return cls._lookup_execution_devices()
+        return {torch.device(x) for x in app_config.devices}
+
+    @classmethod
     def choose_torch_dtype(cls, device: Optional[torch.device] = None) -> torch.dtype:
         """Return the precision to use for accelerated inference."""
-        device = device or cls.choose_torch_device()
         config = get_config()
+        device = device or cls._choose_device()
         if device.type == "cuda" and torch.cuda.is_available():
             device_name = torch.cuda.get_device_name(device)
             if "GeForce GTX 1660" in device_name or "GeForce GTX 1650" in device_name:
@@ -108,3 +136,13 @@ class TorchDevice:
     @classmethod
     def _to_dtype(cls, precision_name: TorchPrecisionNames) -> torch.dtype:
         return NAME_TO_PRECISION[precision_name]
+
+    @classmethod
+    def _lookup_execution_devices(cls) -> Set[torch.device]:
+        if torch.cuda.is_available():
+            devices = {torch.device(f"cuda:{x}") for x in range(0, torch.cuda.device_count())}
+        elif torch.backends.mps.is_available():
+            devices = {torch.device("mps")}
+        else:
+            devices = {torch.device("cpu")}
+        return devices

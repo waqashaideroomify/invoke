@@ -33,6 +33,11 @@ class ModelLoadServiceBase(ABC):
     def convert_cache(self) -> ModelConvertCacheBase:
         """Return the checkpoint convert cache used by this loader."""
 
+    @property
+    @abstractmethod
+    def gpu_count(self) -> int:
+        """Return the number of GPUs we are configured to use."""
+
     @abstractmethod
     def load_model_from_path(
         self, model_path: Path, loader: Optional[Callable[[Path], AnyModel]] = None

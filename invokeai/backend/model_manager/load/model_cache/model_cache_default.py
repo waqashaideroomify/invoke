@@ -18,14 +18,19 @@ context. Use like this:
 
 """
 
+import copy
 import gc
 import math
+import sys
+import threading
 import time
-from contextlib import suppress
+from contextlib import contextmanager, suppress
 from logging import Logger
-from typing import Dict, List, Optional
+from threading import BoundedSemaphore
+from typing import Dict, Generator, List, Optional, Set
 
 import torch
+from diffusers.configuration_utils import ConfigMixin
 
 from invokeai.backend.model_manager import AnyModel, SubModelType
 from invokeai.backend.model_manager.load.memory_snapshot import MemorySnapshot, get_pretty_snapshot_diff
@@ -33,15 +38,14 @@ from invokeai.backend.model_manager.load.model_util import calc_model_size_by_da
 from invokeai.backend.util.devices import TorchDevice
 from invokeai.backend.util.logging import InvokeAILogger
 
+from ..optimizations import skip_torch_weight_init
 from .model_cache_base import CacheRecord, CacheStats, ModelCacheBase, ModelLockerBase
 from .model_locker import ModelLocker
 
 # Maximum size of the cache, in gigs
 # Default is roughly enough to hold three fp16 diffusers models in RAM simultaneously
 DEFAULT_MAX_CACHE_SIZE = 6.0
-
-# amount of GPU memory to hold in reserve for use by generations (GB)
-DEFAULT_MAX_VRAM_CACHE_SIZE = 2.75
+DEFAULT_MAX_VRAM_CACHE_SIZE = 0.25
 
 # actual size of a gig
 GIG = 1073741824
@@ -57,12 +61,8 @@ class ModelCache(ModelCacheBase[AnyModel]):
         self,
         max_cache_size: float = DEFAULT_MAX_CACHE_SIZE,
         max_vram_cache_size: float = DEFAULT_MAX_VRAM_CACHE_SIZE,
-        execution_device: torch.device = torch.device("cuda"),
         storage_device: torch.device = torch.device("cpu"),
         precision: torch.dtype = torch.float16,
-        sequential_offload: bool = False,
-        lazy_offloading: bool = True,
-        sha_chunksize: int = 16777216,
         log_memory_usage: bool = False,
         logger: Optional[Logger] = None,
     ):
@@ -70,23 +70,19 @@ class ModelCache(ModelCacheBase[AnyModel]):
         Initialize the model RAM cache.
 
         :param max_cache_size: Maximum size of the RAM cache [6.0 GB]
-        :param execution_device: Torch device to load active model into [torch.device('cuda')]
         :param storage_device: Torch device to save inactive model in [torch.device('cpu')]
         :param precision: Precision for loaded models [torch.float16]
-        :param lazy_offloading: Keep model in VRAM until another model needs to be loaded
         :param sequential_offload: Conserve VRAM by loading and unloading each stage of the pipeline sequentially
         :param log_memory_usage: If True, a memory snapshot will be captured before and after every model cache
             operation, and the result will be logged (at debug level). There is a time cost to capturing the memory
             snapshots, so it is recommended to disable this feature unless you are actively inspecting the model cache's
             behaviour.
         """
-        # allow lazy offloading only when vram cache enabled
-        self._lazy_offloading = lazy_offloading and max_vram_cache_size > 0
         self._precision: torch.dtype = precision
         self._max_cache_size: float = max_cache_size
         self._max_vram_cache_size: float = max_vram_cache_size
-        self._execution_device: torch.device = execution_device
         self._storage_device: torch.device = storage_device
+        self._ram_lock = threading.Lock()
         self._logger = logger or InvokeAILogger.get_logger(self.__class__.__name__)
         self._log_memory_usage = log_memory_usage
         self._stats: Optional[CacheStats] = None
@@ -94,15 +90,19 @@ class ModelCache(ModelCacheBase[AnyModel]):
         self._cached_models: Dict[str, CacheRecord[AnyModel]] = {}
         self._cache_stack: List[str] = []
 
+        # device to thread id
+        self._device_lock = threading.Lock()
+        self._execution_devices: Dict[torch.device, int] = {x: 0 for x in TorchDevice.execution_devices()}
+        self._free_execution_device = BoundedSemaphore(len(self._execution_devices))
+
+        self.logger.info(
+            f"Using rendering device(s): {', '.join(sorted([str(x) for x in self._execution_devices.keys()]))}"
+        )
+
     @property
     def logger(self) -> Logger:
         """Return the logger used by the cache."""
         return self._logger
-
-    @property
-    def lazy_offloading(self) -> bool:
-        """Return true if the cache is configured to lazily offload models in VRAM."""
-        return self._lazy_offloading
 
     @property
     def storage_device(self) -> torch.device:
@@ -110,9 +110,67 @@ class ModelCache(ModelCacheBase[AnyModel]):
         return self._storage_device
 
     @property
-    def execution_device(self) -> torch.device:
-        """Return the exection device (e.g. "cuda" for VRAM)."""
-        return self._execution_device
+    def execution_devices(self) -> Set[torch.device]:
+        """Return the set of available execution devices."""
+        devices = self._execution_devices.keys()
+        return set(devices)
+
+    def get_execution_device(self) -> torch.device:
+        """
+        Return an execution device that has been reserved for current thread.
+
+        Note that reservations are done using the current thread's TID.
+        It would be better to do this using the session ID, but that involves
+        too many detailed changes to model manager calls.
+
+        May generate a ValueError if no GPU has been reserved.
+        """
+        current_thread = threading.current_thread().ident
+        assert current_thread is not None
+        assigned = [x for x, tid in self._execution_devices.items() if current_thread == tid]
+        if not assigned:
+            raise ValueError(f"No GPU has been reserved for the use of thread {current_thread}")
+        return assigned[0]
+
+    @contextmanager
+    def reserve_execution_device(self, timeout: Optional[int] = None) -> Generator[torch.device, None, None]:
+        """Reserve an execution device (e.g. GPU) for exclusive use by a generation thread.
+
+        Note that the reservation is done using the current thread's TID.
+        It would be better to do this using the session ID, but that involves
+        too many detailed changes to model manager calls.
+        """
+        device = None
+        with self._device_lock:
+            current_thread = threading.current_thread().ident
+            assert current_thread is not None
+
+            # look for a device that has already been assigned to this thread
+            assigned = [x for x, tid in self._execution_devices.items() if current_thread == tid]
+            if assigned:
+                device = assigned[0]
+
+        # no device already assigned. Get one.
+        if device is None:
+            self._free_execution_device.acquire(timeout=timeout)
+            with self._device_lock:
+                free_device = [x for x, tid in self._execution_devices.items() if tid == 0]
+                self._execution_devices[free_device[0]] = current_thread
+                device = free_device[0]
+
+        # we are outside the lock region now
+        self.logger.info(f"Reserved torch device {device} for execution thread {current_thread}")
+
+        # Tell TorchDevice to use this object to get the torch device.
+        TorchDevice.set_model_cache(self)
+        try:
+            yield device
+        finally:
+            with self._device_lock:
+                self.logger.info(f"Released torch device {device}")
+                self._execution_devices[device] = 0
+                self._free_execution_device.release()
+                torch.cuda.empty_cache()
 
     @property
     def max_cache_size(self) -> float:
@@ -163,8 +221,12 @@ class ModelCache(ModelCacheBase[AnyModel]):
         size = calc_model_size_by_data(model)
         self.make_room(size)
 
-        state_dict = model.state_dict() if isinstance(model, torch.nn.Module) else None
-        cache_record = CacheRecord(key=key, model=model, device=self.storage_device, state_dict=state_dict, size=size)
+        if isinstance(model, torch.nn.Module):
+            state_dict = model.state_dict()  # keep a master copy of the state dict
+            model = model.to(device="meta")  # and keep a template in the meta device
+        else:
+            state_dict = None
+        cache_record = CacheRecord(key=key, model=model, state_dict=state_dict, size=size)
         self._cached_models[key] = cache_record
         self._cache_stack.append(key)
 
@@ -184,35 +246,36 @@ class ModelCache(ModelCacheBase[AnyModel]):
 
         This may raise an IndexError if the model is not in the cache.
         """
-        key = self._make_cache_key(key, submodel_type)
-        if key in self._cached_models:
-            if self.stats:
-                self.stats.hits += 1
-        else:
-            if self.stats:
-                self.stats.misses += 1
-            raise IndexError(f"The model with key {key} is not in the cache.")
+        with self._ram_lock:
+            key = self._make_cache_key(key, submodel_type)
+            if key in self._cached_models:
+                if self.stats:
+                    self.stats.hits += 1
+            else:
+                if self.stats:
+                    self.stats.misses += 1
+                raise IndexError(f"The model with key {key} is not in the cache.")
 
-        cache_entry = self._cached_models[key]
+            cache_entry = self._cached_models[key]
 
-        # more stats
-        if self.stats:
-            stats_name = stats_name or key
-            self.stats.cache_size = int(self._max_cache_size * GIG)
-            self.stats.high_watermark = max(self.stats.high_watermark, self.cache_size())
-            self.stats.in_cache = len(self._cached_models)
-            self.stats.loaded_model_sizes[stats_name] = max(
-                self.stats.loaded_model_sizes.get(stats_name, 0), cache_entry.size
+            # more stats
+            if self.stats:
+                stats_name = stats_name or key
+                self.stats.cache_size = int(self._max_cache_size * GIG)
+                self.stats.high_watermark = max(self.stats.high_watermark, self.cache_size())
+                self.stats.in_cache = len(self._cached_models)
+                self.stats.loaded_model_sizes[stats_name] = max(
+                    self.stats.loaded_model_sizes.get(stats_name, 0), cache_entry.size
+                )
+
+            # this moves the entry to the top (right end) of the stack
+            with suppress(Exception):
+                self._cache_stack.remove(key)
+            self._cache_stack.append(key)
+            return ModelLocker(
+                cache=self,
+                cache_entry=cache_entry,
             )
-
-        # this moves the entry to the top (right end) of the stack
-        with suppress(Exception):
-            self._cache_stack.remove(key)
-        self._cache_stack.append(key)
-        return ModelLocker(
-            cache=self,
-            cache_entry=cache_entry,
-        )
 
     def _capture_memory_snapshot(self) -> Optional[MemorySnapshot]:
         if self._log_memory_usage:
@@ -225,45 +288,26 @@ class ModelCache(ModelCacheBase[AnyModel]):
         else:
             return model_key
 
-    def offload_unlocked_models(self, size_required: int) -> None:
-        """Move any unused models from VRAM."""
-        reserved = self._max_vram_cache_size * GIG
-        vram_in_use = torch.cuda.memory_allocated() + size_required
-        self.logger.debug(f"{(vram_in_use/GIG):.2f}GB VRAM needed for models; max allowed={(reserved/GIG):.2f}GB")
-        for _, cache_entry in sorted(self._cached_models.items(), key=lambda x: x[1].size):
-            if vram_in_use <= reserved:
-                break
-            if not cache_entry.loaded:
-                continue
-            if not cache_entry.locked:
-                self.move_model_to_device(cache_entry, self.storage_device)
-                cache_entry.loaded = False
-                vram_in_use = torch.cuda.memory_allocated() + size_required
-                self.logger.debug(
-                    f"Removing {cache_entry.key} from VRAM to free {(cache_entry.size/GIG):.2f}GB; vram free = {(torch.cuda.memory_allocated()/GIG):.2f}GB"
-                )
-
-        TorchDevice.empty_cache()
-
-    def move_model_to_device(self, cache_entry: CacheRecord[AnyModel], target_device: torch.device) -> None:
-        """Move model into the indicated device.
+    def model_to_device(self, cache_entry: CacheRecord[AnyModel], target_device: torch.device) -> AnyModel:
+        """Move a copy of the model into the indicated device and return it.
 
         :param cache_entry: The CacheRecord for the model
         :param target_device: The torch.device to move the model into
 
         May raise a torch.cuda.OutOfMemoryError
         """
-        self.logger.debug(f"Called to move {cache_entry.key} to {target_device}")
-        source_device = cache_entry.device
+        self.logger.info(f"Called to move {cache_entry.key} ({type(cache_entry.model)=}) to {target_device}")
 
-        # Note: We compare device types only so that 'cuda' == 'cuda:0'.
-        # This would need to be revised to support multi-GPU.
-        if torch.device(source_device).type == torch.device(target_device).type:
-            return
-
-        # Some models don't have a `to` method, in which case they run in RAM/CPU.
-        if not hasattr(cache_entry.model, "to"):
-            return
+        # Some models don't have a state dictionary, in which case the
+        # stored model will still reside in CPU
+        if cache_entry.state_dict is None:
+            if hasattr(cache_entry.model, "to"):
+                model_in_gpu = copy.deepcopy(cache_entry.model)
+                assert hasattr(model_in_gpu, "to")
+                model_in_gpu.to(target_device)
+                return model_in_gpu
+            else:
+                return cache_entry.model  # what happens in CPU stays in CPU
 
         # This roundabout method for moving the model around is done to avoid
         # the cost of moving the model from RAM to VRAM and then back from VRAM to RAM.
@@ -276,27 +320,25 @@ class ModelCache(ModelCacheBase[AnyModel]):
         # in RAM into the model. So this operation is very fast.
         start_model_to_time = time.time()
         snapshot_before = self._capture_memory_snapshot()
-
         try:
-            if cache_entry.state_dict is not None:
-                assert hasattr(cache_entry.model, "load_state_dict")
-                if target_device == self.storage_device:
-                    cache_entry.model.load_state_dict(cache_entry.state_dict, assign=True)
+            assert isinstance(cache_entry.model, torch.nn.Module)
+            template = cache_entry.model
+            cls = template.__class__
+            with skip_torch_weight_init():
+                if isinstance(cls, ConfigMixin) or hasattr(cls, "from_config"):
+                    working_model = template.__class__.from_config(template.config)  # diffusers style
                 else:
-                    new_dict: Dict[str, torch.Tensor] = {}
-                    for k, v in cache_entry.state_dict.items():
-                        new_dict[k] = v.to(torch.device(target_device), copy=True, non_blocking=True)
-                    cache_entry.model.load_state_dict(new_dict, assign=True)
-            cache_entry.model.to(target_device, non_blocking=True)
-            cache_entry.device = target_device
+                    working_model = template.__class__(config=template.config)  # transformers style (sigh)
+            working_model.to(device=target_device, dtype=self._precision)
+            working_model.load_state_dict(cache_entry.state_dict)
         except Exception as e:  # blow away cache entry
             self._delete_cache_entry(cache_entry)
             raise e
 
         snapshot_after = self._capture_memory_snapshot()
         end_model_to_time = time.time()
-        self.logger.debug(
-            f"Moved model '{cache_entry.key}' from {source_device} to"
+        self.logger.info(
+            f"Moved model '{cache_entry.key}' to"
             f" {target_device} in {(end_model_to_time-start_model_to_time):.2f}s."
             f"Estimated model size: {(cache_entry.size/GIG):.3f} GB."
             f"{get_pretty_snapshot_diff(snapshot_before, snapshot_after)}"
@@ -318,34 +360,21 @@ class ModelCache(ModelCacheBase[AnyModel]):
                 abs_tol=10 * MB,
             ):
                 self.logger.debug(
-                    f"Moving model '{cache_entry.key}' from {source_device} to"
+                    f"Moving model '{cache_entry.key}' from to"
                     f" {target_device} caused an unexpected change in VRAM usage. The model's"
                     " estimated size may be incorrect. Estimated model size:"
                     f" {(cache_entry.size/GIG):.3f} GB.\n"
                     f"{get_pretty_snapshot_diff(snapshot_before, snapshot_after)}"
                 )
+        return working_model
 
     def print_cuda_stats(self) -> None:
         """Log CUDA diagnostics."""
         vram = "%4.2fG" % (torch.cuda.memory_allocated() / GIG)
         ram = "%4.2fG" % (self.cache_size() / GIG)
 
-        in_ram_models = 0
-        in_vram_models = 0
-        locked_in_vram_models = 0
-        for cache_record in self._cached_models.values():
-            if hasattr(cache_record.model, "device"):
-                if cache_record.model.device == self.storage_device:
-                    in_ram_models += 1
-                else:
-                    in_vram_models += 1
-                if cache_record.locked:
-                    locked_in_vram_models += 1
-
-                self.logger.debug(
-                    f"Current VRAM/RAM usage: {vram}/{ram}; models_in_ram/models_in_vram(locked) ="
-                    f" {in_ram_models}/{in_vram_models}({locked_in_vram_models})"
-                )
+        in_ram_models = len(self._cached_models)
+        self.logger.debug(f"Current VRAM/RAM usage for {in_ram_models} models: {vram}/{ram}")
 
     def make_room(self, size: int) -> None:
         """Make enough room in the cache to accommodate a new model of indicated size."""
@@ -368,12 +397,14 @@ class ModelCache(ModelCacheBase[AnyModel]):
         while current_size + bytes_needed > maximum_size and pos < len(self._cache_stack):
             model_key = self._cache_stack[pos]
             cache_entry = self._cached_models[model_key]
-            device = cache_entry.model.device if hasattr(cache_entry.model, "device") else None
-            self.logger.debug(
-                f"Model: {model_key}, locks: {cache_entry._locks}, device: {device}, loaded: {cache_entry.loaded}"
-            )
 
-            if not cache_entry.locked:
+            refs = sys.getrefcount(cache_entry.model)
+
+            # Expected refs:
+            # 1 from cache_entry
+            # 1 from getrefcount function
+            # 1 from onnx runtime object
+            if refs <= (3 if "onnx" in model_key else 2):
                 self.logger.debug(
                     f"Removing {model_key} from RAM cache to free at least {(size/GIG):.2f} GB (-{(cache_entry.size/GIG):.2f} GB)"
                 )
@@ -400,10 +431,23 @@ class ModelCache(ModelCacheBase[AnyModel]):
             if self.stats:
                 self.stats.cleared = models_cleared
             gc.collect()
-
         TorchDevice.empty_cache()
         self.logger.debug(f"After making room: cached_models={len(self._cached_models)}")
+
+    def _check_free_vram(self, target_device: torch.device, needed_size: int) -> None:
+        if target_device.type != "cuda":
+            return
+        vram_device = (  # mem_get_info() needs an indexed device
+            target_device if target_device.index is not None else torch.device(str(target_device), index=0)
+        )
+        free_mem, _ = torch.cuda.mem_get_info(torch.device(vram_device))
+        if needed_size > free_mem:
+            raise torch.cuda.OutOfMemoryError
 
     def _delete_cache_entry(self, cache_entry: CacheRecord[AnyModel]) -> None:
         self._cache_stack.remove(cache_entry.key)
         del self._cached_models[cache_entry.key]
+
+    @staticmethod
+    def _device_name(device: torch.device) -> str:
+        return f"{device.type}:{device.index}"

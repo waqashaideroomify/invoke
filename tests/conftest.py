@@ -17,7 +17,6 @@ from invokeai.app.services.config.config_default import InvokeAIAppConfig
 from invokeai.app.services.images.images_default import ImageService
 from invokeai.app.services.invocation_cache.invocation_cache_memory import MemoryInvocationCache
 from invokeai.app.services.invocation_services import InvocationServices
-from invokeai.app.services.invocation_stats.invocation_stats_default import InvocationStatsService
 from invokeai.app.services.invoker import Invoker
 from invokeai.backend.util.logging import InvokeAILogger
 from tests.backend.model_manager.model_manager_fixtures import *  # noqa: F403
@@ -49,13 +48,13 @@ def mock_services() -> InvocationServices:
         model_manager=None,  # type: ignore
         download_queue=None,  # type: ignore
         names=None,  # type: ignore
-        performance_statistics=InvocationStatsService(),
         session_processor=None,  # type: ignore
         session_queue=None,  # type: ignore
         urls=None,  # type: ignore
         workflow_records=None,  # type: ignore
         tensors=None,  # type: ignore
         conditioning=None,  # type: ignore
+        performance_statistics=None,  # type: ignore
     )
 
 
