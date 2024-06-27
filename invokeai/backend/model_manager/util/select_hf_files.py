@@ -35,6 +35,18 @@ def filter_files(
     The file list can be obtained from the `files` field of HuggingFaceMetadata,
     as defined in `invokeai.backend.model_manager.metadata.metadata_base`.
     """
+
+    # BRITTLENESS WARNING!!
+    # The following pattern is designed to match model files that are components of diffusers submodels,
+    # but not to match other random stuff found in huggingface repos.
+    # Diffusers models always seem to have "model" in their name, and the regex filter below is applied to avoid
+    # downloading random checkpoints that might also be in the repo. However there is no guarantee
+    # that a checkpoint doesn't contain "model" in its name, and no guarantee that future diffusers models
+    # will adhere to this naming convention, so this is an area to be careful of.
+    DIFFUSERS_COMPONENT_PATTERN = (
+        r"model(-fp16)?(-\d+-of-\d+)?(\.[^.]+)?\.(safetensors|bin|onnx|xml|pth|pt|ckpt|msgpack)$"
+    )
+
     variant = variant or ModelRepoVariant.Default
     paths: List[Path] = []
     root = files[0].parts[0]
@@ -45,31 +57,26 @@ def filter_files(
 
     # Start by filtering on model file extensions, discarding images, docs, etc
     for file in files:
-        if file.name.endswith((".json", ".txt")):
-            paths.append(file)
-        elif file.name.endswith(
+        if file.name.endswith(
             (
+                ".json",
+                ".txt",
                 "learned_embeds.bin",
                 "ip_adapter.bin",
                 "lora_weights.safetensors",
                 "weights.pb",
                 "onnx_data",
+                "spiece.model",
             )
         ):
             paths.append(file)
-        # BRITTLENESS WARNING!!
-        # Diffusers models always seem to have "model" in their name, and the regex filter below is applied to avoid
-        # downloading random checkpoints that might also be in the repo. However there is no guarantee
-        # that a checkpoint doesn't contain "model" in its name, and no guarantee that future diffusers models
-        # will adhere to this naming convention, so this is an area to be careful of.
-        elif re.search(r"model(\.[^.]+)?\.(safetensors|bin|onnx|xml|pth|pt|ckpt|msgpack)$", file.name):
+        elif re.search(DIFFUSERS_COMPONENT_PATTERN, file.name):
             paths.append(file)
 
     # limit search to subfolder if requested
     if subfolder:
         subfolder = root / subfolder
         paths = [x for x in paths if x.parent == Path(subfolder)]
-
     # _filter_by_variant uniquifies the paths and returns a set
     return sorted(_filter_by_variant(paths, variant))
 
@@ -97,8 +104,21 @@ def _filter_by_variant(files: List[Path], variant: ModelRepoVariant) -> Set[Path
             if variant == ModelRepoVariant.Flax:
                 result.add(path)
 
-        elif path.suffix in [".json", ".txt"]:
+        elif path.suffix in [".json", ".txt", ".model"]:
             result.add(path)
+
+        # handle shard patterns
+        elif re.match(r"model\.fp16-\d+-of-\d+\.safetensors", path.name):
+            if variant is ModelRepoVariant.FP16:
+                result.add(path)
+            else:
+                continue
+
+        elif re.match(r"model-\d+-of-\d+\.safetensors", path.name):
+            if variant in [ModelRepoVariant.FP32, ModelRepoVariant.Default]:
+                result.add(path)
+            else:
+                continue
 
         elif variant in [
             ModelRepoVariant.FP16,
@@ -123,6 +143,7 @@ def _filter_by_variant(files: List[Path], variant: ModelRepoVariant) -> Set[Path
                 score += 1
 
             candidate_variant_label = path.suffixes[0] if len(path.suffixes) == 2 else None
+            candidate_variant_label, *_ = str(candidate_variant_label).split("-")  # handle shard pattern
 
             # Some special handling is needed here if there is not an exact match and if we cannot infer the variant
             # from the file name. In this case, we only give this file a point if the requested variant is FP32 or DEFAULT.
@@ -138,6 +159,8 @@ def _filter_by_variant(files: List[Path], variant: ModelRepoVariant) -> Set[Path
 
         else:
             continue
+
+    print(subfolder_weights)
 
     for candidate_list in subfolder_weights.values():
         highest_score_candidate = max(candidate_list, key=lambda candidate: candidate.score)

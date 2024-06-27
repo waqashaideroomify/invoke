@@ -60,9 +60,7 @@ class ModelCache(ModelCacheBase[AnyModel]):
         execution_device: torch.device = torch.device("cuda"),
         storage_device: torch.device = torch.device("cpu"),
         precision: torch.dtype = torch.float16,
-        sequential_offload: bool = False,
         lazy_offloading: bool = True,
-        sha_chunksize: int = 16777216,
         log_memory_usage: bool = False,
         logger: Optional[Logger] = None,
     ):
@@ -74,7 +72,6 @@ class ModelCache(ModelCacheBase[AnyModel]):
         :param storage_device: Torch device to save inactive model in [torch.device('cpu')]
         :param precision: Precision for loaded models [torch.float16]
         :param lazy_offloading: Keep model in VRAM until another model needs to be loaded
-        :param sequential_offload: Conserve VRAM by loading and unloading each stage of the pipeline sequentially
         :param log_memory_usage: If True, a memory snapshot will be captured before and after every model cache
             operation, and the result will be logged (at debug level). There is a time cost to capturing the memory
             snapshots, so it is recommended to disable this feature unless you are actively inspecting the model cache's
@@ -163,8 +160,18 @@ class ModelCache(ModelCacheBase[AnyModel]):
         size = calc_model_size_by_data(model)
         self.make_room(size)
 
-        state_dict = model.state_dict() if isinstance(model, torch.nn.Module) else None
-        cache_record = CacheRecord(key=key, model=model, device=self.storage_device, state_dict=state_dict, size=size)
+        is_quantized = hasattr(model, "is_quantized") and model.is_quantized
+        state_dict = model.state_dict() if isinstance(model, torch.nn.Module) and not is_quantized else None
+        cache_record = CacheRecord(
+            key=key,
+            model=model,
+            device=self._execution_device
+            if is_quantized
+            else self._storage_device,  # quantized models are loaded directly into CUDA
+            is_quantized=is_quantized,
+            state_dict=state_dict,
+            size=size,
+        )
         self._cached_models[key] = cache_record
         self._cache_stack.append(key)
 
@@ -233,8 +240,23 @@ class ModelCache(ModelCacheBase[AnyModel]):
         for _, cache_entry in sorted(self._cached_models.items(), key=lambda x: x[1].size):
             if vram_in_use <= reserved:
                 break
+
+            # Special handling of the stable-diffusion-3:text_encoder_3
+            # submodel, when the user has loaded a quantized model.
+            # The only way to remove the quantized version of this model from VRAM is to
+            # delete it completely - it can't be moved from device to device
+            # This also contains a workaround for quantized models that
+            # persist indefinitely in VRAM
+            if cache_entry.is_quantized:
+                self._empty_quantized_state_dict(cache_entry.model)
+                cache_entry.model = None
+                self._delete_cache_entry(cache_entry)
+                vram_in_use = torch.cuda.memory_allocated() + size_required
+                continue
+
             if not cache_entry.loaded:
                 continue
+
             if not cache_entry.locked:
                 self.move_model_to_device(cache_entry, self.storage_device)
                 cache_entry.loaded = False
@@ -242,7 +264,7 @@ class ModelCache(ModelCacheBase[AnyModel]):
                 self.logger.debug(
                     f"Removing {cache_entry.key} from VRAM to free {(cache_entry.size/GIG):.2f}GB; vram free = {(torch.cuda.memory_allocated()/GIG):.2f}GB"
                 )
-
+        gc.collect()
         TorchDevice.empty_cache()
 
     def move_model_to_device(self, cache_entry: CacheRecord[AnyModel], target_device: torch.device) -> None:
@@ -256,7 +278,7 @@ class ModelCache(ModelCacheBase[AnyModel]):
         self.logger.debug(f"Called to move {cache_entry.key} to {target_device}")
         source_device = cache_entry.device
 
-        # Note: We compare device types only so that 'cuda' == 'cuda:0'.
+        # Note: We compare device types so that 'cuda' == 'cuda:0'.
         # This would need to be revised to support multi-GPU.
         if torch.device(source_device).type == torch.device(target_device).type:
             return
@@ -409,3 +431,20 @@ class ModelCache(ModelCacheBase[AnyModel]):
     def _delete_cache_entry(self, cache_entry: CacheRecord[AnyModel]) -> None:
         self._cache_stack.remove(cache_entry.key)
         del self._cached_models[cache_entry.key]
+        del cache_entry
+        gc.collect()
+        TorchDevice.empty_cache()
+
+    def _empty_quantized_state_dict(self, model: AnyModel) -> None:
+        """Set all keys of a model's state dict to None.
+
+        This is a partial workaround for a poorly-understood bug in
+        transformers' support for quantized T5EncoderModels (text_encoder_3
+        of SD3). This allows most of the model to be unloaded from VRAM, but
+        still leaks 8K of VRAM each time the model is unloaded. Using the quantized
+        version of stable-diffusion-3-medium is NOT recommended.
+        """
+        assert isinstance(model, torch.nn.Module)
+        sd = model.state_dict()
+        for k in sd.keys():
+            sd[k] = None

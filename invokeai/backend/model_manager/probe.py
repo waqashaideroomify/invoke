@@ -100,6 +100,7 @@ class ModelProbe(object):
         "StableDiffusionXLImg2ImgPipeline": ModelType.Main,
         "StableDiffusionXLInpaintPipeline": ModelType.Main,
         "LatentConsistencyModelPipeline": ModelType.Main,
+        "StableDiffusion3Pipeline": ModelType.Main,
         "AutoencoderKL": ModelType.VAE,
         "AutoencoderTiny": ModelType.VAE,
         "ControlNetModel": ModelType.ControlNet,
@@ -298,10 +299,13 @@ class ModelProbe(object):
             return possible_conf.absolute()
 
         if model_type is ModelType.Main:
-            config_file = LEGACY_CONFIGS[base_type][variant_type]
-            if isinstance(config_file, dict):  # need another tier for sd-2.x models
-                config_file = config_file[prediction_type]
-            config_file = f"stable-diffusion/{config_file}"
+            if base_type is BaseModelType.StableDiffusion3:
+                config_file = "stable-diffusion/v3-inference.yaml"
+            else:
+                config_file = LEGACY_CONFIGS[base_type][variant_type]
+                if isinstance(config_file, dict):  # need another tier for sd-2.x models
+                    config_file = config_file[prediction_type]
+                config_file = f"stable-diffusion/{config_file}"
         elif model_type is ModelType.ControlNet:
             config_file = (
                 "controlnet/cldm_v15.yaml"
@@ -374,7 +378,7 @@ def get_default_settings_controlnet_t2i_adapter(model_name: str) -> Optional[Con
 def get_default_settings_main(model_base: BaseModelType) -> Optional[MainModelDefaultSettings]:
     if model_base is BaseModelType.StableDiffusion1 or model_base is BaseModelType.StableDiffusion2:
         return MainModelDefaultSettings(width=512, height=512)
-    elif model_base is BaseModelType.StableDiffusionXL:
+    elif model_base in [BaseModelType.StableDiffusionXL, BaseModelType.StableDiffusion3]:
         return MainModelDefaultSettings(width=1024, height=1024)
     # We don't provide defaults for BaseModelType.StableDiffusionXLRefiner, as they are not standalone models.
     return None
@@ -398,7 +402,10 @@ class CheckpointProbeBase(ProbeBase):
         if model_type != ModelType.Main:
             return ModelVariantType.Normal
         state_dict = self.checkpoint.get("state_dict") or self.checkpoint
-        in_channels = state_dict["model.diffusion_model.input_blocks.0.0.weight"].shape[1]
+        key = "model.diffusion_model.input_blocks.0.0.weight"
+        if key not in state_dict:
+            return ModelVariantType.Normal
+        in_channels = state_dict[key].shape[1]
         if in_channels == 9:
             return ModelVariantType.Inpaint
         elif in_channels == 5:
@@ -425,6 +432,9 @@ class PipelineCheckpointProbe(CheckpointProbeBase):
             return BaseModelType.StableDiffusionXL
         elif key_name in state_dict and state_dict[key_name].shape[-1] == 1280:
             return BaseModelType.StableDiffusionXLRefiner
+        key_name = "text_encoders.clip_g.transformer.text_model.embeddings.position_embedding.weight"
+        if key_name in state_dict:
+            return BaseModelType.StableDiffusion3
         else:
             raise InvalidModelConfigException("Cannot determine base type")
 
@@ -596,6 +606,10 @@ class FolderProbeBase(ProbeBase):
 
 class PipelineFolderProbe(FolderProbeBase):
     def get_base_type(self) -> BaseModelType:
+        with open(self.model_path / "model_index.json", "r") as file:
+            index_conf = json.load(file)
+            if index_conf.get("_class_name") == "StableDiffusion3Pipeline":
+                return BaseModelType.StableDiffusion3
         with open(self.model_path / "unet" / "config.json", "r") as file:
             unet_conf = json.load(file)
         if unet_conf["cross_attention_dim"] == 768:
@@ -644,6 +658,8 @@ class VaeFolderProbe(FolderProbeBase):
     def get_base_type(self) -> BaseModelType:
         if self._config_looks_like_sdxl():
             return BaseModelType.StableDiffusionXL
+        elif self._config_looks_like_sd3():
+            return BaseModelType.StableDiffusion3
         elif self._name_looks_like_sdxl():
             # but SD and SDXL VAE are the same shape (3-channel RGB to 4-channel float scaled down
             # by a factor of 8), we can't necessarily tell them apart by config hyperparameters.
@@ -662,6 +678,15 @@ class VaeFolderProbe(FolderProbeBase):
 
     def _name_looks_like_sdxl(self) -> bool:
         return bool(re.search(r"xl\b", self._guess_name(), re.IGNORECASE))
+
+    def _config_looks_like_sd3(self) -> bool:
+        # config values that distinguish Stability's SD 1.x VAE from their SDXL VAE.
+        config_file = self.model_path / "config.json"
+        if not config_file.exists():
+            raise InvalidModelConfigException(f"Cannot determine base type for {self.model_path}")
+        with open(config_file, "r") as file:
+            config = json.load(file)
+        return config.get("scaling_factor", 0) == 1.5305 and config.get("sample_size") in [512, 1024]
 
     def _guess_name(self) -> str:
         name = self.model_path.name

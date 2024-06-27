@@ -8,13 +8,7 @@ from invokeai.app.services.shared.invocation_context import InvocationContext
 from invokeai.app.shared.models import FreeUConfig
 from invokeai.backend.model_manager.config import AnyModelConfig, BaseModelType, ModelType, SubModelType
 
-from .baseinvocation import (
-    BaseInvocation,
-    BaseInvocationOutput,
-    Classification,
-    invocation,
-    invocation_output,
-)
+from .baseinvocation import BaseInvocation, BaseInvocationOutput, Classification, invocation, invocation_output
 
 
 class ModelIdentifierField(BaseModel):
@@ -54,11 +48,25 @@ class UNetField(BaseModel):
     freeu_config: Optional[FreeUConfig] = Field(default=None, description="FreeU configuration")
 
 
+class TransformerField(BaseModel):
+    transformer: ModelIdentifierField = Field(description="Info to load unet submodel")
+    scheduler: ModelIdentifierField = Field(description="Info to load scheduler submodel")
+
+
 class CLIPField(BaseModel):
     tokenizer: ModelIdentifierField = Field(description="Info to load tokenizer submodel")
     text_encoder: ModelIdentifierField = Field(description="Info to load text_encoder submodel")
     skipped_layers: int = Field(description="Number of skipped layers in text_encoder")
     loras: List[LoRAField] = Field(description="LoRAs to apply on model loading")
+
+
+class SD3CLIPField(BaseModel):
+    tokenizer_1: ModelIdentifierField = Field(description="Info to load tokenizer 1 submodel")
+    text_encoder_1: ModelIdentifierField = Field(description="Info to load text_encoder 1 submodel")
+    tokenizer_2: ModelIdentifierField = Field(description="Info to load tokenizer 2 submodel")
+    text_encoder_2: ModelIdentifierField = Field(description="Info to load text_encoder 2 submodel")
+    tokenizer_3: Optional[ModelIdentifierField] = Field(description="Info to load tokenizer 3 submodel")
+    text_encoder_3: Optional[ModelIdentifierField] = Field(description="Info to load text_encoder 3 submodel")
 
 
 class VAEField(BaseModel):
