@@ -446,6 +446,13 @@ export type paths = {
      */
     put: operations["cancel_by_batch_ids"];
   };
+  "/api/v1/queue/{queue_id}/cancel_by_origin": {
+    /**
+     * Cancel By Origin
+     * @description Immediately cancels all queue items with the given origin
+     */
+    put: operations["cancel_by_origin"];
+  };
   "/api/v1/queue/{queue_id}/clear": {
     /**
      * Clear
@@ -772,6 +779,8 @@ export type components = {
        * @description The ID of the batch
        */
       batch_id?: string;
+      /** @description The origin of this batch. */
+      origin?: components["schemas"]["QueueItemOrigin"] | null;
       /**
        * Data
        * @description The batch data collection.
@@ -841,6 +850,11 @@ export type components = {
        * @description The priority of the batch
        */
       priority: number;
+      /**
+       * @description The origin of the batch
+       * @default null
+       */
+      origin: components["schemas"]["QueueItemOrigin"] | null;
     };
     /** BatchStatus */
     BatchStatus: {
@@ -854,6 +868,8 @@ export type components = {
        * @description The ID of the batch
        */
       batch_id: string;
+      /** @description The origin of the batch */
+      origin: components["schemas"]["QueueItemOrigin"] | null;
       /**
        * Pending
        * @description Number of queue items with status 'pending'
@@ -1843,6 +1859,17 @@ export type components = {
      * @description Result of canceling by list of batch ids
      */
     CancelByBatchIDsResult: {
+      /**
+       * Canceled
+       * @description Number of queue items canceled
+       */
+      canceled: number;
+    };
+    /**
+     * CancelByOriginResult
+     * @description Result of canceling by list of batch ids
+     */
+    CancelByOriginResult: {
       /**
        * Canceled
        * @description Number of queue items canceled
@@ -7141,6 +7168,11 @@ export type components = {
        */
       batch_id: string;
       /**
+       * @description The origin of the batch
+       * @default null
+       */
+      origin: components["schemas"]["QueueItemOrigin"] | null;
+      /**
        * Session Id
        * @description The ID of the session (aka graph execution state)
        */
@@ -7186,6 +7218,11 @@ export type components = {
        * @description The ID of the queue batch
        */
       batch_id: string;
+      /**
+       * @description The origin of the batch
+       * @default null
+       */
+      origin: components["schemas"]["QueueItemOrigin"] | null;
       /**
        * Session Id
        * @description The ID of the session (aka graph execution state)
@@ -7250,6 +7287,11 @@ export type components = {
        */
       batch_id: string;
       /**
+       * @description The origin of the batch
+       * @default null
+       */
+      origin: components["schemas"]["QueueItemOrigin"] | null;
+      /**
        * Session Id
        * @description The ID of the session (aka graph execution state)
        */
@@ -7293,145 +7335,145 @@ export type components = {
       project_id: string | null;
     };
     InvocationOutputMap: {
-      save_image: components["schemas"]["ImageOutput"];
-      integer_math: components["schemas"]["IntegerOutput"];
-      segment_anything_processor: components["schemas"]["ImageOutput"];
-      sdxl_refiner_compel_prompt: components["schemas"]["ConditioningOutput"];
-      zoe_depth_image_processor: components["schemas"]["ImageOutput"];
-      collect: components["schemas"]["CollectInvocationOutput"];
-      range: components["schemas"]["IntegerCollectionOutput"];
-      unsharp_mask: components["schemas"]["ImageOutput"];
-      string_replace: components["schemas"]["StringOutput"];
-      face_identifier: components["schemas"]["ImageOutput"];
-      heuristic_resize: components["schemas"]["ImageOutput"];
-      range_of_size: components["schemas"]["IntegerCollectionOutput"];
-      latents_collection: components["schemas"]["LatentsCollectionOutput"];
-      color_map_image_processor: components["schemas"]["ImageOutput"];
-      img_ilerp: components["schemas"]["ImageOutput"];
-      infill_patchmatch: components["schemas"]["ImageOutput"];
-      face_off: components["schemas"]["FaceOffOutput"];
-      string_collection: components["schemas"]["StringCollectionOutput"];
       sdxl_model_loader: components["schemas"]["SDXLModelLoaderOutput"];
-      sdxl_lora_loader: components["schemas"]["SDXLLoRALoaderOutput"];
-      string_join: components["schemas"]["StringOutput"];
-      lblend: components["schemas"]["LatentsOutput"];
-      conditioning_collection: components["schemas"]["ConditioningCollectionOutput"];
-      string_split_neg: components["schemas"]["StringPosNegOutput"];
-      img_watermark: components["schemas"]["ImageOutput"];
-      infill_lama: components["schemas"]["ImageOutput"];
-      div: components["schemas"]["IntegerOutput"];
-      show_image: components["schemas"]["ImageOutput"];
-      tile_to_properties: components["schemas"]["TileToPropertiesOutput"];
-      sub: components["schemas"]["IntegerOutput"];
-      normalbae_image_processor: components["schemas"]["ImageOutput"];
-      invert_tensor_mask: components["schemas"]["MaskOutput"];
-      create_gradient_mask: components["schemas"]["GradientMaskOutput"];
-      string_split: components["schemas"]["String2Output"];
-      step_param_easing: components["schemas"]["FloatCollectionOutput"];
-      metadata: components["schemas"]["MetadataOutput"];
-      img_pad_crop: components["schemas"]["ImageOutput"];
-      integer: components["schemas"]["IntegerOutput"];
-      img_mul: components["schemas"]["ImageOutput"];
-      calculate_image_tiles: components["schemas"]["CalculateImageTilesOutput"];
-      color: components["schemas"]["ColorOutput"];
-      infill_rgba: components["schemas"]["ImageOutput"];
-      t2i_adapter: components["schemas"]["T2IAdapterOutput"];
-      denoise_latents: components["schemas"]["LatentsOutput"];
-      img_lerp: components["schemas"]["ImageOutput"];
-      img_channel_offset: components["schemas"]["ImageOutput"];
-      img_crop: components["schemas"]["ImageOutput"];
-      alpha_mask_to_tensor: components["schemas"]["MaskOutput"];
-      color_correct: components["schemas"]["ImageOutput"];
-      calculate_image_tiles_min_overlap: components["schemas"]["CalculateImageTilesOutput"];
-      img_hue_adjust: components["schemas"]["ImageOutput"];
-      lresize: components["schemas"]["LatentsOutput"];
-      img_blur: components["schemas"]["ImageOutput"];
-      compel: components["schemas"]["ConditioningOutput"];
-      sdxl_lora_collection_loader: components["schemas"]["SDXLLoRALoaderOutput"];
-      float_to_int: components["schemas"]["IntegerOutput"];
-      boolean: components["schemas"]["BooleanOutput"];
-      string_join_three: components["schemas"]["StringOutput"];
-      add: components["schemas"]["IntegerOutput"];
-      merge_tiles_to_image: components["schemas"]["ImageOutput"];
-      core_metadata: components["schemas"]["MetadataOutput"];
-      lscale: components["schemas"]["LatentsOutput"];
-      mlsd_image_processor: components["schemas"]["ImageOutput"];
-      image_collection: components["schemas"]["ImageCollectionOutput"];
-      crop_latents: components["schemas"]["LatentsOutput"];
-      image_mask_to_tensor: components["schemas"]["MaskOutput"];
-      lora_collection_loader: components["schemas"]["LoRALoaderOutput"];
-      ip_adapter: components["schemas"]["IPAdapterOutput"];
-      pidi_image_processor: components["schemas"]["ImageOutput"];
-      rand_int: components["schemas"]["IntegerOutput"];
-      img_conv: components["schemas"]["ImageOutput"];
-      scheduler: components["schemas"]["SchedulerOutput"];
-      img_paste: components["schemas"]["ImageOutput"];
-      noise: components["schemas"]["NoiseOutput"];
-      img_scale: components["schemas"]["ImageOutput"];
-      i2l: components["schemas"]["LatentsOutput"];
-      main_model_loader: components["schemas"]["ModelLoaderOutput"];
-      blank_image: components["schemas"]["ImageOutput"];
-      mask_edge: components["schemas"]["ImageOutput"];
-      seamless: components["schemas"]["SeamlessModeOutput"];
-      esrgan: components["schemas"]["ImageOutput"];
-      canvas_paste_back: components["schemas"]["ImageOutput"];
-      mul: components["schemas"]["IntegerOutput"];
-      dynamic_prompt: components["schemas"]["StringCollectionOutput"];
-      controlnet: components["schemas"]["ControlOutput"];
-      l2i: components["schemas"]["ImageOutput"];
-      ideal_size: components["schemas"]["IdealSizeOutput"];
-      latents: components["schemas"]["LatentsOutput"];
-      midas_depth_image_processor: components["schemas"]["ImageOutput"];
-      tomask: components["schemas"]["ImageOutput"];
-      float_math: components["schemas"]["FloatOutput"];
-      round_float: components["schemas"]["FloatOutput"];
-      cv_inpaint: components["schemas"]["ImageOutput"];
-      create_denoise_mask: components["schemas"]["DenoiseMaskOutput"];
-      model_identifier: components["schemas"]["ModelIdentifierOutput"];
-      pair_tile_image: components["schemas"]["PairTileImageOutput"];
-      lineart_image_processor: components["schemas"]["ImageOutput"];
-      img_nsfw: components["schemas"]["ImageOutput"];
-      infill_cv2: components["schemas"]["ImageOutput"];
-      clip_skip: components["schemas"]["CLIPSkipInvocationOutput"];
-      dw_openpose_image_processor: components["schemas"]["ImageOutput"];
-      img_resize: components["schemas"]["ImageOutput"];
-      iterate: components["schemas"]["IterateInvocationOutput"];
-      rectangle_mask: components["schemas"]["MaskOutput"];
-      canny_image_processor: components["schemas"]["ImageOutput"];
-      calculate_image_tiles_even_split: components["schemas"]["CalculateImageTilesOutput"];
-      mask_from_id: components["schemas"]["ImageOutput"];
-      metadata_item: components["schemas"]["MetadataItemOutput"];
-      infill_tile: components["schemas"]["ImageOutput"];
-      tiled_multi_diffusion_denoise_latents: components["schemas"]["LatentsOutput"];
-      img_channel_multiply: components["schemas"]["ImageOutput"];
-      boolean_collection: components["schemas"]["BooleanCollectionOutput"];
-      lora_loader: components["schemas"]["LoRALoaderOutput"];
-      float_collection: components["schemas"]["FloatCollectionOutput"];
-      string: components["schemas"]["StringOutput"];
+      sdxl_refiner_compel_prompt: components["schemas"]["ConditioningOutput"];
       freeu: components["schemas"]["UNetOutput"];
-      lineart_anime_image_processor: components["schemas"]["ImageOutput"];
+      float_math: components["schemas"]["FloatOutput"];
+      prompt_from_file: components["schemas"]["StringCollectionOutput"];
+      t2i_adapter: components["schemas"]["T2IAdapterOutput"];
+      l2i: components["schemas"]["ImageOutput"];
       depth_anything_image_processor: components["schemas"]["ImageOutput"];
+      latents: components["schemas"]["LatentsOutput"];
+      merge_metadata: components["schemas"]["MetadataOutput"];
+      img_resize: components["schemas"]["ImageOutput"];
+      create_gradient_mask: components["schemas"]["GradientMaskOutput"];
+      crop_latents: components["schemas"]["LatentsOutput"];
+      range: components["schemas"]["IntegerCollectionOutput"];
+      hed_image_processor: components["schemas"]["ImageOutput"];
+      string_split: components["schemas"]["String2Output"];
+      div: components["schemas"]["IntegerOutput"];
+      sdxl_compel_prompt: components["schemas"]["ConditioningOutput"];
+      segment_anything_processor: components["schemas"]["ImageOutput"];
+      face_off: components["schemas"]["FaceOffOutput"];
+      img_paste: components["schemas"]["ImageOutput"];
+      conditioning: components["schemas"]["ConditioningOutput"];
+      lresize: components["schemas"]["LatentsOutput"];
+      img_watermark: components["schemas"]["ImageOutput"];
+      rand_int: components["schemas"]["IntegerOutput"];
+      string: components["schemas"]["StringOutput"];
+      conditioning_collection: components["schemas"]["ConditioningCollectionOutput"];
+      img_scale: components["schemas"]["ImageOutput"];
+      seamless: components["schemas"]["SeamlessModeOutput"];
+      img_crop: components["schemas"]["ImageOutput"];
+      normalbae_image_processor: components["schemas"]["ImageOutput"];
+      mlsd_image_processor: components["schemas"]["ImageOutput"];
+      infill_cv2: components["schemas"]["ImageOutput"];
+      color: components["schemas"]["ColorOutput"];
+      string_collection: components["schemas"]["StringCollectionOutput"];
+      compel: components["schemas"]["ConditioningOutput"];
+      img_pad_crop: components["schemas"]["ImageOutput"];
+      float_to_int: components["schemas"]["IntegerOutput"];
       image: components["schemas"]["ImageOutput"];
-      face_mask_detection: components["schemas"]["FaceMaskOutput"];
-      rand_float: components["schemas"]["FloatOutput"];
-      float: components["schemas"]["FloatOutput"];
+      zoe_depth_image_processor: components["schemas"]["ImageOutput"];
+      image_collection: components["schemas"]["ImageCollectionOutput"];
+      scheduler: components["schemas"]["SchedulerOutput"];
+      tomask: components["schemas"]["ImageOutput"];
       random_range: components["schemas"]["IntegerCollectionOutput"];
       integer_collection: components["schemas"]["IntegerCollectionOutput"];
-      sdxl_refiner_model_loader: components["schemas"]["SDXLRefinerModelLoaderOutput"];
-      mask_combine: components["schemas"]["ImageOutput"];
+      img_channel_multiply: components["schemas"]["ImageOutput"];
+      esrgan: components["schemas"]["ImageOutput"];
+      img_mul: components["schemas"]["ImageOutput"];
+      rectangle_mask: components["schemas"]["MaskOutput"];
+      color_map_image_processor: components["schemas"]["ImageOutput"];
+      controlnet: components["schemas"]["ControlOutput"];
+      i2l: components["schemas"]["LatentsOutput"];
+      pair_tile_image: components["schemas"]["PairTileImageOutput"];
+      infill_lama: components["schemas"]["ImageOutput"];
+      string_split_neg: components["schemas"]["StringPosNegOutput"];
+      iterate: components["schemas"]["IterateInvocationOutput"];
+      infill_patchmatch: components["schemas"]["ImageOutput"];
+      canny_image_processor: components["schemas"]["ImageOutput"];
+      metadata_item: components["schemas"]["MetadataItemOutput"];
+      invert_tensor_mask: components["schemas"]["MaskOutput"];
+      cv_inpaint: components["schemas"]["ImageOutput"];
+      model_identifier: components["schemas"]["ModelIdentifierOutput"];
+      string_join: components["schemas"]["StringOutput"];
+      dynamic_prompt: components["schemas"]["StringCollectionOutput"];
+      img_conv: components["schemas"]["ImageOutput"];
+      clip_skip: components["schemas"]["CLIPSkipInvocationOutput"];
+      string_replace: components["schemas"]["StringOutput"];
+      tiled_multi_diffusion_denoise_latents: components["schemas"]["LatentsOutput"];
+      core_metadata: components["schemas"]["MetadataOutput"];
+      step_param_easing: components["schemas"]["FloatCollectionOutput"];
+      float: components["schemas"]["FloatOutput"];
+      denoise_latents: components["schemas"]["LatentsOutput"];
+      lblend: components["schemas"]["LatentsOutput"];
+      calculate_image_tiles_even_split: components["schemas"]["CalculateImageTilesOutput"];
+      calculate_image_tiles_min_overlap: components["schemas"]["CalculateImageTilesOutput"];
+      infill_rgba: components["schemas"]["ImageOutput"];
+      face_mask_detection: components["schemas"]["FaceMaskOutput"];
+      rand_float: components["schemas"]["FloatOutput"];
+      sdxl_lora_collection_loader: components["schemas"]["SDXLLoRALoaderOutput"];
+      show_image: components["schemas"]["ImageOutput"];
+      merge_tiles_to_image: components["schemas"]["ImageOutput"];
       tile_image_processor: components["schemas"]["ImageOutput"];
-      img_chan: components["schemas"]["ImageOutput"];
-      vae_loader: components["schemas"]["VAEOutput"];
-      prompt_from_file: components["schemas"]["StringCollectionOutput"];
-      float_range: components["schemas"]["FloatCollectionOutput"];
-      merge_metadata: components["schemas"]["MetadataOutput"];
-      sdxl_compel_prompt: components["schemas"]["ConditioningOutput"];
-      hed_image_processor: components["schemas"]["ImageOutput"];
+      save_image: components["schemas"]["ImageOutput"];
+      lscale: components["schemas"]["LatentsOutput"];
+      face_identifier: components["schemas"]["ImageOutput"];
+      unsharp_mask: components["schemas"]["ImageOutput"];
+      lora_collection_loader: components["schemas"]["LoRALoaderOutput"];
       lora_selector: components["schemas"]["LoRASelectorOutput"];
-      conditioning: components["schemas"]["ConditioningOutput"];
-      leres_image_processor: components["schemas"]["ImageOutput"];
+      img_chan: components["schemas"]["ImageOutput"];
+      integer_math: components["schemas"]["IntegerOutput"];
+      heuristic_resize: components["schemas"]["ImageOutput"];
+      range_of_size: components["schemas"]["IntegerCollectionOutput"];
+      boolean_collection: components["schemas"]["BooleanCollectionOutput"];
+      lora_loader: components["schemas"]["LoRALoaderOutput"];
+      img_hue_adjust: components["schemas"]["ImageOutput"];
       mediapipe_face_processor: components["schemas"]["ImageOutput"];
+      img_nsfw: components["schemas"]["ImageOutput"];
+      sdxl_lora_loader: components["schemas"]["SDXLLoRALoaderOutput"];
+      tile_to_properties: components["schemas"]["TileToPropertiesOutput"];
+      integer: components["schemas"]["IntegerOutput"];
+      boolean: components["schemas"]["BooleanOutput"];
+      mask_combine: components["schemas"]["ImageOutput"];
+      calculate_image_tiles: components["schemas"]["CalculateImageTilesOutput"];
+      round_float: components["schemas"]["FloatOutput"];
+      collect: components["schemas"]["CollectInvocationOutput"];
+      img_ilerp: components["schemas"]["ImageOutput"];
+      leres_image_processor: components["schemas"]["ImageOutput"];
+      lineart_anime_image_processor: components["schemas"]["ImageOutput"];
+      main_model_loader: components["schemas"]["ModelLoaderOutput"];
+      ideal_size: components["schemas"]["IdealSizeOutput"];
       content_shuffle_image_processor: components["schemas"]["ImageOutput"];
+      float_range: components["schemas"]["FloatCollectionOutput"];
+      ip_adapter: components["schemas"]["IPAdapterOutput"];
+      infill_tile: components["schemas"]["ImageOutput"];
+      alpha_mask_to_tensor: components["schemas"]["MaskOutput"];
+      float_collection: components["schemas"]["FloatCollectionOutput"];
+      sdxl_refiner_model_loader: components["schemas"]["SDXLRefinerModelLoaderOutput"];
+      dw_openpose_image_processor: components["schemas"]["ImageOutput"];
+      pidi_image_processor: components["schemas"]["ImageOutput"];
+      latents_collection: components["schemas"]["LatentsCollectionOutput"];
+      add: components["schemas"]["IntegerOutput"];
+      vae_loader: components["schemas"]["VAEOutput"];
+      mul: components["schemas"]["IntegerOutput"];
+      string_join_three: components["schemas"]["StringOutput"];
+      canvas_paste_back: components["schemas"]["ImageOutput"];
+      mask_from_id: components["schemas"]["ImageOutput"];
+      blank_image: components["schemas"]["ImageOutput"];
+      create_denoise_mask: components["schemas"]["DenoiseMaskOutput"];
+      mask_edge: components["schemas"]["ImageOutput"];
+      color_correct: components["schemas"]["ImageOutput"];
+      metadata: components["schemas"]["MetadataOutput"];
+      lineart_image_processor: components["schemas"]["ImageOutput"];
+      midas_depth_image_processor: components["schemas"]["ImageOutput"];
+      img_channel_offset: components["schemas"]["ImageOutput"];
+      img_blur: components["schemas"]["ImageOutput"];
+      sub: components["schemas"]["IntegerOutput"];
+      image_mask_to_tensor: components["schemas"]["MaskOutput"];
+      img_lerp: components["schemas"]["ImageOutput"];
+      noise: components["schemas"]["NoiseOutput"];
     };
     /**
      * InvocationStartedEvent
@@ -7458,6 +7500,11 @@ export type components = {
        * @description The ID of the queue batch
        */
       batch_id: string;
+      /**
+       * @description The origin of the batch
+       * @default null
+       */
+      origin: components["schemas"]["QueueItemOrigin"] | null;
       /**
        * Session Id
        * @description The ID of the session (aka graph execution state)
@@ -10319,6 +10366,12 @@ export type components = {
       queue_id: string;
     };
     /**
+     * QueueItemOrigin
+     * @description The origin of a batch. For example, a batch can be created from the canvas or workflows tab.
+     * @enum {string}
+     */
+    QueueItemOrigin: "canvas" | "workflows";
+    /**
      * QueueItemStatusChangedEvent
      * @description Event model for queue_item_status_changed
      */
@@ -10343,6 +10396,11 @@ export type components = {
        * @description The ID of the queue batch
        */
       batch_id: string;
+      /**
+       * @description The origin of the batch
+       * @default null
+       */
+      origin: components["schemas"]["QueueItemOrigin"] | null;
       /**
        * Status
        * @description The new status of the queue item
@@ -11638,6 +11696,8 @@ export type components = {
        * @description The ID of the batch associated with this queue item
        */
       batch_id: string;
+      /** @description The origin of this queue item. */
+      origin?: components["schemas"]["QueueItemOrigin"] | null;
       /**
        * Session Id
        * @description The ID of the session associated with this queue item. The session doesn't exist in graph_executions until the queue item is executed.
@@ -11718,6 +11778,8 @@ export type components = {
        * @description The ID of the batch associated with this queue item
        */
       batch_id: string;
+      /** @description The origin of this queue item. */
+      origin?: components["schemas"]["QueueItemOrigin"] | null;
       /**
        * Session Id
        * @description The ID of the session associated with this queue item. The session doesn't exist in graph_executions until the queue item is executed.
@@ -15511,6 +15573,36 @@ export type operations = {
     requestBody: {
       content: {
         "application/json": components["schemas"]["Body_cancel_by_batch_ids"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        content: {
+          "application/json": components["schemas"]["CancelByBatchIDsResult"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  /**
+   * Cancel By Origin
+   * @description Immediately cancels all queue items with the given origin
+   */
+  cancel_by_origin: {
+    parameters: {
+      query: {
+        /** @description The origin to cancel all queue items for */
+        origin: components["schemas"]["QueueItemOrigin"];
+      };
+      path: {
+        /** @description The queue id to perform this operation on */
+        queue_id: string;
       };
     };
     responses: {
