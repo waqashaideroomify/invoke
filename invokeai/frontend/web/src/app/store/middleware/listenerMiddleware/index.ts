@@ -34,7 +34,7 @@ import { addInvocationErrorEventListener } from 'app/store/middleware/listenerMi
 import { addInvocationStartedEventListener } from 'app/store/middleware/listenerMiddleware/listeners/socketio/socketInvocationStarted';
 import { addModelInstallEventListener } from 'app/store/middleware/listenerMiddleware/listeners/socketio/socketModelInstall';
 import { addModelLoadEventListener } from 'app/store/middleware/listenerMiddleware/listeners/socketio/socketModelLoad';
-import { addSocketQueueItemStatusChangedEventListener } from 'app/store/middleware/listenerMiddleware/listeners/socketio/socketQueueItemStatusChanged';
+import { addSocketQueueEventsListeners } from 'app/store/middleware/listenerMiddleware/listeners/socketio/socketQueueEvents';
 import { addUpdateAllNodesRequestedListener } from 'app/store/middleware/listenerMiddleware/listeners/updateAllNodesRequested';
 import { addUpscaleRequestedListener } from 'app/store/middleware/listenerMiddleware/listeners/upscaleRequested';
 import { addWorkflowLoadRequestedListener } from 'app/store/middleware/listenerMiddleware/listeners/workflowLoadRequested';
@@ -97,7 +97,7 @@ addSocketConnectedEventListener(startAppListening);
 addSocketDisconnectedEventListener(startAppListening);
 addModelLoadEventListener(startAppListening);
 addModelInstallEventListener(startAppListening);
-addSocketQueueItemStatusChangedEventListener(startAppListening);
+addSocketQueueEventsListeners(startAppListening);
 addBulkDownloadListeners(startAppListening);
 
 // Boards
